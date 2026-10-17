@@ -1,9 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import {
-  countInboxView,
-  nextInboxWakeMs,
-  type InboxEntry,
-} from "@t3tools/client-runtime/state/inbox";
+import { nextInboxWakeMs, type InboxEntry } from "@t3tools/client-runtime/state/inbox";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { useEffect, useMemo, useState } from "react";
@@ -69,11 +65,4 @@ export function useInboxClock(entries: ReadonlyArray<InboxEntry>): number {
     return () => window.clearTimeout(timer);
   }, [entries, now]);
   return now;
-}
-
-/** Open, unsnoozed items across every connected environment: the sidebar badge. */
-export function useInboxActionableCount(): number {
-  const { entries } = useMergedInbox();
-  const now = useInboxClock(entries);
-  return countInboxView(entries, "inbox", now);
 }

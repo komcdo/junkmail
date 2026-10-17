@@ -12,6 +12,7 @@ import { Button } from "../components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../components/ui/empty";
 import { SidebarInset } from "../components/ui/sidebar";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
+import { withInboxLanding } from "../components/inbox/PrimarySidebar"; // junkmail
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import {
   readProject,
@@ -119,7 +120,7 @@ function DraftStartError({ onRetry }: { readonly onRetry: () => void }) {
 }
 
 export const Route = createFileRoute("/_chat/")({
-  component: ChatIndexRouteView,
+  component: withInboxLanding(ChatIndexRouteView), // junkmail
 });
 
 function HostedStaticOnboardingState() {

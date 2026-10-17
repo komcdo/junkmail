@@ -34,6 +34,7 @@ import {
 import LegacyThreadSidebar from "./LegacySidebar";
 import { useThreadVisitedMigration } from "../hooks/useThreadVisitedMigration";
 import ThreadSidebar from "./Sidebar";
+import { PrimarySidebar } from "./inbox/PrimarySidebar"; // junkmail
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { SidebarBrandWidthProbe, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { MainAppLocationTracker } from "./sidebar/mainAppLocation";
@@ -334,7 +335,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           ) : legacySidebarEnabled ? (
             <LegacyThreadSidebar />
           ) : (
-            <ThreadSidebar />
+            <PrimarySidebar threads={<ThreadSidebar />} /> // junkmail
           )}
           <SidebarRail onDoubleClick={resetSidebarWidth} />
         </Sidebar>

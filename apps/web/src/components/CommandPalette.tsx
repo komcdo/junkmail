@@ -56,6 +56,7 @@ import {
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
+import { useInboxPaletteActions } from "./inbox/useInboxPaletteActions"; // junkmail
 import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
@@ -716,6 +717,7 @@ function OpenCommandPaletteDialog(props: {
   readonly clearOpenIntent: () => void;
 }) {
   const navigate = useNavigate();
+  const inboxActions = useInboxPaletteActions(ITEM_ICON_CLASS); // junkmail
   const pathname = useLocation({ select: (location) => location.pathname });
   const { clearOpenIntent, openIntent, openOverlayMode, setOpen } = props;
   const [query, setQuery] = useState(openIntent?.kind === "search" ? openIntent.query : "");
@@ -2045,6 +2047,8 @@ function OpenCommandPaletteDialog(props: {
       },
     });
   }
+
+  actionItems.push(...inboxActions); // junkmail
 
   actionItems.push({
     kind: "action",
