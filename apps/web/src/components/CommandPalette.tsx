@@ -59,7 +59,6 @@ import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
-  InboxIcon,
   CheckIcon,
   ChevronRightIcon,
   CornerLeftUpIcon,
@@ -2046,17 +2045,6 @@ function OpenCommandPaletteDialog(props: {
       },
     });
   }
-
-  actionItems.push({
-    kind: "action",
-    value: "action:inbox",
-    searchTerms: ["inbox", "todo", "tasks", "work items", "triage", "snoozed"],
-    title: "Open inbox",
-    icon: <InboxIcon className={ITEM_ICON_CLASS} />,
-    run: async () => {
-      await navigate({ to: "/inbox" });
-    },
-  });
 
   actionItems.push({
     kind: "action",

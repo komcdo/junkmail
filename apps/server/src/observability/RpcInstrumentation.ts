@@ -1,4 +1,5 @@
 import { ORCHESTRATION_V2_WS_METHODS, WS_METHODS, type WsRpcGroup } from "@t3tools/contracts";
+import { INBOX_RPC_AGGREGATES } from "@t3tools/contracts"; // junkmail
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as References from "effect/References";
@@ -85,14 +86,6 @@ const RPC_AGGREGATES = {
   [WS_METHODS.serverReportClientActivity]: "server",
   [WS_METHODS.serverReportHostPowerState]: "server",
   [WS_METHODS.serverGetBackgroundPolicy]: "server",
-  [WS_METHODS.inboxList]: "inbox",
-  [WS_METHODS.inboxSubscribe]: "inbox",
-  [WS_METHODS.inboxCreate]: "inbox",
-  [WS_METHODS.inboxUpdate]: "inbox",
-  [WS_METHODS.inboxReorder]: "inbox",
-  [WS_METHODS.inboxLinkThread]: "inbox",
-  [WS_METHODS.inboxDelete]: "inbox",
-  [WS_METHODS.inboxStartThread]: "inbox",
   [WS_METHODS.scheduledTasksList]: "scheduledTasks",
   [WS_METHODS.scheduledTasksSubscribe]: "scheduledTasks",
   [WS_METHODS.scheduledTasksUpsert]: "scheduledTasks",
@@ -217,6 +210,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.subscribeServerLifecycle]: "server",
   [WS_METHODS.subscribeAuthAccess]: "auth",
   [WS_METHODS.subscribeBackgroundPolicy]: "server",
+  ...INBOX_RPC_AGGREGATES, // junkmail
 } as const satisfies Readonly<Record<WsRpcMethod, string>>;
 
 const RPC_SPAN_PREFIX = "ws.rpc";

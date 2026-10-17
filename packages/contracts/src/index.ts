@@ -59,10 +59,12 @@ export * from "./previewAutomation.ts";
 export * from "./resourceTelemetry.ts";
 export * from "./usage.ts";
 export * from "./scheduledTask.ts";
-export * from "./inbox.ts";
 export * from "./worktreeMcp.ts";
 export * from "./resourceTelemetry.ts";
 export * from "./rpc.ts";
 export * from "./worktreeSetup.ts";
 export * from "./secretRequest.ts";
 export * from "./clientRpcPermissions.ts";
+
+// junkmail: fork-owned contracts (inbox, pullers) live behind this one barrel.
+export * from "./junkmail.ts";

@@ -26,6 +26,7 @@ import {
   AuthTerminalReadScope,
   type AuthEnvironmentScope,
   EnvironmentAuthorizationError,
+  INBOX_READ_RPC_SCOPES, // junkmail
   RpcScopeAuthorization,
   WS_METHODS,
   WsRpcGroup,
@@ -112,8 +113,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.serverGetBackgroundPolicy]: AuthOrchestrationReadScope,
   [WS_METHODS.scheduledTasksList]: AuthOrchestrationReadScope,
   [WS_METHODS.scheduledTasksSubscribe]: AuthOrchestrationReadScope,
-  [WS_METHODS.inboxList]: AuthOrchestrationReadScope,
-  [WS_METHODS.inboxSubscribe]: AuthOrchestrationReadScope,
+  ...INBOX_READ_RPC_SCOPES, // junkmail
   [WS_METHODS.secretsAnswerRequest]: AuthOrchestrationOperateScope,
   // Delivery logs hold request bodies, so they need the same scope as the URL.
   [WS_METHODS.scheduledTasksListWebhookDeliveries]: AuthOrchestrationOperateScope,

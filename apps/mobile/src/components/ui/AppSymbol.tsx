@@ -120,7 +120,7 @@ import IconTool from "@tabler/icons-react-native/IconTool";
 import IconTrash from "@tabler/icons-react-native/IconTrash";
 import IconTypography from "@tabler/icons-react-native/IconTypography";
 import IconUpload from "@tabler/icons-react-native/IconUpload";
-import IconInbox from "@tabler/icons-react-native/IconInbox";
+import IconInbox from "@tabler/icons-react-native/IconInbox"; // junkmail
 import IconUserCircle from "@tabler/icons-react-native/IconUserCircle";
 import IconUserCheck from "@tabler/icons-react-native/IconUserCheck";
 import IconUserX from "@tabler/icons-react-native/IconUserX";
@@ -267,7 +267,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "textformat.size": IconTypography,
   "textformat.size.larger": IconTextIncrease,
   "textformat.size.smaller": IconTextDecrease,
-  tray: IconInbox,
+  tray: IconInbox, // junkmail
   "tray.and.arrow.up": IconUpload,
   trash: IconTrash,
   wifi: IconWifi,

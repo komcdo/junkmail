@@ -50,8 +50,8 @@ import { WorktreeToolkit } from "./toolkits/worktree/tools.ts";
 import * as WorktreeMcpService from "./WorktreeMcpService.ts";
 import * as PullRequestsHandlers from "./toolkits/pullRequests/handlers.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
-import * as InboxHandlers from "./toolkits/inbox/handlers.ts";
-import { InboxToolkit } from "./toolkits/inbox/tools.ts";
+import * as InboxHandlers from "./toolkits/inbox/handlers.ts"; // junkmail
+import { InboxToolkit } from "./toolkits/inbox/tools.ts"; // junkmail
 import * as DeviceHandlers from "./toolkits/device/handlers.ts";
 import {
   DeviceScreenshotTool,
@@ -811,7 +811,7 @@ export const layerPullRequestsToolkit = toolkitRegistration(
   PullRequestsHandlers.layer,
 );
 
-export const layerInboxToolkit = toolkitRegistration(InboxToolkit, InboxHandlers.layer);
+export const layerInboxToolkit = toolkitRegistration(InboxToolkit, InboxHandlers.layer); // junkmail
 
 const layerDeviceStandardToolkitRegistration = toolkitRegistration(
   DeviceStandardToolkit,
@@ -846,7 +846,7 @@ export const layer = Layer.mergeAll(
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,
-  layerInboxToolkit,
+  layerInboxToolkit, // junkmail
   layerDeviceToolkit,
   layerHtmlToolkit,
 ).pipe(Layer.provideMerge(layerMcpTransport));

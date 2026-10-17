@@ -6,7 +6,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 import { runMigrations } from "./Migrations.ts";
-import { runInboxMigrations } from "../inbox/InboxMigrations.ts";
+import { runInboxMigrations } from "../inbox/InboxMigrations.ts"; // junkmail
 import { initializeV2Database } from "./initializeV2Database.ts";
 import * as ServerConfig from "../config.ts";
 
@@ -38,7 +38,7 @@ const layerSetup = Layer.effectDiscard(
     // largest size until the last connection closes.
     yield* sql.unsafe(`PRAGMA journal_size_limit = ${WAL_SIZE_LIMIT_BYTES};`);
     yield* runMigrations();
-    yield* runInboxMigrations();
+    yield* runInboxMigrations(); // junkmail
     yield* sql`PRAGMA optimize = 0x10012;`;
   }),
 );

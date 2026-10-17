@@ -162,3 +162,7 @@ Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/
 
 - Don't verify with browsers or computer use unless the user explicitly agrees or requests it.
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
+
+## junkmail fork
+
+This checkout is the junkmail fork. Keep fork code in fork-owned files with `// junkmail` hooks in upstream files, and follow [docs/junkmail/UPSTREAM.md](docs/junkmail/UPSTREAM.md) when merging upstream.

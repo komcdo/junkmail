@@ -21,6 +21,6 @@ export type SettingsSheetTarget =
   | "SettingsDiagnostics"
   | "SettingsOpenSourceLicenses"
   | "SettingsUsage"
-  | "SettingsInbox";
+  | "SettingsInbox"; // junkmail
 
 export type SettingsLegalDocumentTarget = "SettingsLegal";

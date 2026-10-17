@@ -215,6 +215,7 @@ function SettingsIndexSections() {
       </SettingsSection>
 
       <SettingsSection title="App">
+        {/* junkmail */}
         <SettingsRow icon="tray" label="Inbox" target="SettingsInbox" />
         <SettingsRow icon="chart.bar.xaxis" label="Usage" target="SettingsUsage" />
         <SettingsRow icon="info.circle" label="About T3 Code" target="SettingsAbout" />

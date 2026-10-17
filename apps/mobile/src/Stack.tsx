@@ -124,7 +124,7 @@ import { SettingsProjectGroupingRouteScreen } from "./features/settings/Settings
 import { SettingsProjectOverviewRouteScreen } from "./features/settings/SettingsProjectOverviewRouteScreen";
 import { UsageLimitAccountScreen } from "./features/usage/UsageLimitsPooled";
 import { UsageRouteScreen } from "./features/usage/UsageRouteScreen";
-import { InboxRouteScreen } from "./features/inbox/InboxRouteScreen";
+import { InboxRouteScreen } from "./features/inbox/InboxRouteScreen"; // junkmail
 import { SettingsAboutRouteScreen } from "./features/settings/SettingsAboutRouteScreen";
 import { SettingsNotificationsRouteScreen } from "./features/settings/SettingsNotificationsRouteScreen";
 import { SettingsRouteScreen } from "./features/settings/SettingsRouteScreen";
@@ -402,6 +402,7 @@ const SettingsContentStack = createV5SheetStackNavigator({
         title: "License notice",
       },
     }),
+    // junkmail
     SettingsInbox: createNativeStackScreen({
       screen: InboxRouteScreen,
       linking: "inbox",

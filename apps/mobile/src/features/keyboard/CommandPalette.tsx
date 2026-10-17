@@ -237,6 +237,7 @@ export function CommandPalette(props: {
             params: { screen: "SettingsScheduledTasks" },
           }),
       },
+      // junkmail
       {
         key: "inbox",
         kind: "action",

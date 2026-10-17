@@ -8,6 +8,7 @@ import {
 } from "./auth.ts";
 import { ORCHESTRATION_V2_WS_METHODS } from "./orchestrationV2.ts";
 import { WS_METHODS } from "./rpc.ts";
+import { INBOX_CLIENT_GUARDED_RPC_SCOPES } from "./inbox.rpc.ts"; // junkmail
 
 /** Incremental client enforcement; the server still authorizes every request. */
 export const CLIENT_GUARDED_RPC_SCOPES = {
@@ -45,13 +46,8 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.scheduledTasksDelete]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksRunNow]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksRotateWebhookToken]: AuthOrchestrationOperateScope,
-  [WS_METHODS.inboxCreate]: AuthOrchestrationOperateScope,
-  [WS_METHODS.inboxUpdate]: AuthOrchestrationOperateScope,
-  [WS_METHODS.inboxReorder]: AuthOrchestrationOperateScope,
-  [WS_METHODS.inboxLinkThread]: AuthOrchestrationOperateScope,
-  [WS_METHODS.inboxDelete]: AuthOrchestrationOperateScope,
-  [WS_METHODS.inboxStartThread]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_V2_WS_METHODS.stopWorkflow]: AuthOrchestrationOperateScope,
+  ...INBOX_CLIENT_GUARDED_RPC_SCOPES, // junkmail
 } as const;
 export type ClientGuardedRpcTag = keyof typeof CLIENT_GUARDED_RPC_SCOPES;
 
