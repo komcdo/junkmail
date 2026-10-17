@@ -26,7 +26,7 @@ import {
 } from "@t3tools/client-runtime/state/inbox";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import * as Schema from "effect/Schema";
 import {
   CheckIcon,
@@ -126,6 +126,12 @@ export function InboxSidebar(props: { readonly full: boolean }) {
     select: (params) => resolveThreadRouteRef(params),
   });
   const shells = useThreadShells();
+  const openItemKey = useLocation({
+    select: (location) =>
+      location.pathname === "/inbox" && typeof location.search.item === "string"
+        ? location.search.item
+        : null,
+  });
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
@@ -312,12 +318,13 @@ export function InboxSidebar(props: { readonly full: boolean }) {
           controller.multiEnvironment ? controller.environmentLabel(entry.environmentId) : null
         }
         active={
-          routeThreadRef !== null &&
-          linked.some(
-            (shell) =>
-              shell.id === routeThreadRef.threadId &&
-              shell.environmentId === routeThreadRef.environmentId,
-          )
+          key === openItemKey ||
+          (routeThreadRef !== null &&
+            linked.some(
+              (shell) =>
+                shell.id === routeThreadRef.threadId &&
+                shell.environmentId === routeThreadRef.environmentId,
+            ))
         }
         draggable={draggable}
         onOpen={() => openEntry(entry)}
