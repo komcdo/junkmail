@@ -40,6 +40,10 @@ function entry(
       createdAt: "2026-10-16T10:00:00.000Z",
       updatedAt: "2026-10-16T10:00:00.000Z",
       closedAt: null,
+      labels: [],
+      activityCount: 0,
+      unseenActivityCount: 0,
+      lastActivity: null,
       ...overrides,
     },
   };

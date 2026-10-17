@@ -25,4 +25,9 @@ export const makeInboxRpcHandlers = (inbox: Inbox.InboxService["Service"]) => ({
     Effect.annotateCurrentSpan({ "inbox.item_id": input.id }).pipe(
       Effect.andThen(inbox.startThread(input)),
     ),
+  [INBOX_WS_METHODS.inboxListActivity]: (input: Parameters<typeof inbox.listActivity>[0]) =>
+    Effect.annotateCurrentSpan({ "inbox.item_id": input.id }).pipe(
+      Effect.andThen(inbox.listActivity(input)),
+    ),
+  [INBOX_WS_METHODS.inboxSearch]: inbox.search,
 });

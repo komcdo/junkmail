@@ -66,3 +66,42 @@ export function useInboxClock(entries: ReadonlyArray<InboxEntry>): number {
   }, [entries, now]);
   return now;
 }
+
+/**
+ * Entry keys whose stored activity matches `query`, from every connected environment. Titles,
+ * labels, and the latest message are matched on the client; older messages live on the server.
+ */
+export function useInboxActivityMatches(query: string): ReadonlySet<string> {
+  const { environments } = useEnvironments();
+  const [debounced, setDebounced] = useState("");
+  const trimmed = query.trim();
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(trimmed), 250);
+    return () => window.clearTimeout(timer);
+  }, [trimmed]);
+  return useAtomValue(
+    useMemo(
+      () =>
+        Atom.make((get) => {
+          const keys = new Set<string>();
+          if (debounced.length < 2) return keys;
+          for (const environment of environments) {
+            if (environment.connection.phase !== "connected" || environment.serverConfig === null) {
+              continue;
+            }
+            const result = get(
+              serverEnvironment.inboxSearch({
+                environmentId: environment.environmentId,
+                input: { query: debounced },
+              }),
+            );
+            for (const id of Option.getOrNull(AsyncResult.value(result))?.ids ?? []) {
+              keys.add(`${environment.environmentId}:${id}`);
+            }
+          }
+          return keys;
+        }),
+      [environments, debounced],
+    ),
+  );
+}

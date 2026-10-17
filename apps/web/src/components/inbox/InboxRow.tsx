@@ -1,22 +1,24 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { inboxEntryKey, inboxItemView, type InboxEntry } from "@t3tools/client-runtime/state/inbox";
+import { inboxItemView, type InboxEntry } from "@t3tools/client-runtime/state/inbox";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { InboxUpdateInput } from "@t3tools/contracts";
 import {
-  AlarmClockIcon,
   CheckIcon,
+  ChevronRightIcon,
   ExternalLinkIcon,
-  FolderGit2Icon,
-  GitBranchIcon,
   GripVerticalIcon,
+  MessageSquareTextIcon,
+  MessagesSquareIcon,
   MoreHorizontalIcon,
   RotateCcwIcon,
   Trash2Icon,
   XIcon,
 } from "lucide-react";
+import type { ReactNode } from "react";
 
-import type { useProjects } from "../../state/entities";
+import { cn } from "../../lib/utils";
+import { resolveSidebarThreadStatus, type SidebarThreadStatus } from "../Sidebar.logic";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import {
@@ -29,214 +31,290 @@ import {
   MenuShortcut,
   MenuTrigger,
 } from "../ui/menu";
-import { InboxThreadChip, PriorityMenu, SnoozeMenu, StartThreadMenu } from "./InboxItemParts";
-import type { InboxProjectRef, InboxThreadRef } from "./useInboxController";
+import { PRIORITY_BADGE, PriorityMenu, SnoozeMenu } from "./InboxItemParts";
+import { InboxLabelChip } from "./InboxLabels";
+
+const STATUS_DOT: Partial<Record<SidebarThreadStatus, { label: string; className: string }>> = {
+  working: { label: "Agent working", className: "bg-info" },
+  approval: { label: "Needs approval", className: "bg-warning" },
+  input: { label: "Needs input", className: "bg-indigo-500" },
+  failed: { label: "Failed", className: "bg-destructive" },
+  limited: { label: "Usage limited", className: "bg-warning" },
+};
+const STATE_MENU = [
+  { state: "open", label: "Inbox" },
+  { state: "in_progress", label: "In progress" },
+  { state: "waiting", label: "Waiting" },
+  { state: "done", label: "Done" },
+] as const;
+const COMPACT_LABEL_LIMIT = 2;
+
+function formatWake(snoozedUntil: string) {
+  return new Date(snoozedUntil).toLocaleString(undefined, {
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+export function ThreadStatusDot(props: { readonly thread: EnvironmentThreadShell | null }) {
+  if (props.thread === null) return null;
+  const status = STATUS_DOT[resolveSidebarThreadStatus(props.thread)];
+  if (status === undefined) return null;
+  return (
+    <span className="flex size-4 shrink-0 items-center justify-center">
+      <span className={cn("size-1.5 rounded-full", status.className)} />
+      <span className="sr-only">{status.label}</span>
+    </span>
+  );
+}
 
 export interface InboxRowProps {
   readonly entry: InboxEntry;
+  readonly rowKey: string;
   readonly now: number;
-  readonly draggable: boolean;
-  readonly selected: boolean;
-  readonly environmentLabel: string | null;
+  readonly density: "full" | "compact";
+  readonly thread: EnvironmentThreadShell | null;
   readonly projectTitle: string | null;
-  readonly projects: ReturnType<typeof useProjects>;
+  readonly environmentLabel: string | null;
+  readonly active: boolean;
+  readonly selected: boolean;
+  readonly expanded: boolean;
+  readonly draggable: boolean;
+  readonly labelFilter: string | null;
+  readonly children?: ReactNode;
+  readonly onToggle: () => void;
   readonly onSelect: () => void;
-  readonly onOpen: () => void;
   readonly onUpdate: (input: Omit<InboxUpdateInput, "id">) => Promise<void>;
-  readonly onStartThread: (projectRef: InboxProjectRef) => void;
-  readonly onOpenThread: (threadRef: InboxThreadRef) => void;
+  readonly onOpenThread: (() => void) | null;
+  readonly onLabelClick: (label: string) => void;
   readonly onDelete: () => void;
 }
 
 export function InboxRow(props: InboxRowProps) {
-  const { entry, now } = props;
-  const { item } = entry;
-  const key = inboxEntryKey(entry);
+  const { item } = props.entry;
+  const full = props.density === "full";
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: key,
+    id: props.rowKey,
     disabled: !props.draggable,
   });
-  const itemView = inboxItemView(item, now);
-  const closed = item.state === "done" || item.state === "dismissed";
-  const project = props.projects.find((candidate) => candidate.id === item.projectId) ?? null;
-  const threadEnvironmentId = project?.environmentId ?? entry.environmentId;
+  const view = inboxItemView(item, props.now);
+  const closed = view === "done" || view === "dismissed";
+  const pullRequest = props.thread?.pullRequests[0] ?? null;
+  const branch = item.branch ?? props.thread?.branch ?? null;
+  const labels = full ? item.labels : item.labels.slice(0, COMPACT_LABEL_LIMIT);
+  const meta = [
+    view === "snoozed" && item.snoozedUntil ? `Wakes ${formatWake(item.snoozedUntil)}` : null,
+    item.origin.kind !== "manual" && item.origin.kind !== "thread" ? item.origin.kind : null,
+    props.environmentLabel,
+    props.projectTitle,
+    branch,
+    pullRequest ? `#${pullRequest.number}` : null,
+  ].filter((part): part is string => !!part);
+  const update = (input: Omit<InboxUpdateInput, "id">) => void props.onUpdate(input);
 
   return (
     <div
       ref={setNodeRef}
-      role="listitem"
       style={{ transform: CSS.Translate.toString(transform), transition }}
+      data-active={props.active || undefined}
       data-selected={props.selected || undefined}
+      data-expanded={props.expanded || undefined}
       data-dragging={isDragging || undefined}
       onClick={props.onSelect}
-      className="group relative flex gap-2 rounded-lg border border-transparent px-2 py-2 hover:bg-accent/40 data-[dragging]:z-10 data-[dragging]:bg-background data-[dragging]:shadow-md data-[selected]:border-border data-[selected]:bg-accent/30"
+      className={cn(
+        "group/row relative rounded-lg border border-transparent hover:bg-sidebar-row-hover data-[active]:bg-sidebar-row-hover data-[dragging]:z-10 data-[dragging]:bg-sidebar data-[dragging]:shadow-md data-[expanded]:border-border data-[expanded]:bg-sidebar-row-hover/60 data-[selected]:border-border",
+        full ? "px-2 py-2" : "px-2 py-1.5",
+      )}
+      {...(full ? {} : { ...attributes, ...listeners })}
+      // The drag attributes carry role="button"; the row stays a list item.
+      role="listitem"
     >
-      <button
-        type="button"
-        aria-label="Drag to reorder"
-        disabled={!props.draggable}
-        className="mt-0.5 flex h-5 w-4 shrink-0 cursor-grab items-center justify-center text-muted-foreground/60 opacity-0 group-hover:opacity-100 disabled:invisible"
-        {...attributes}
-        {...listeners}
-      >
-        <GripVerticalIcon className="size-3.5" />
-      </button>
-
-      <PriorityMenu
-        priority={item.priority}
-        onChange={(priority) => props.onUpdate({ priority })}
-      />
-
-      <div className="min-w-0 flex-1">
-        <button
-          type="button"
-          onClick={props.onOpen}
-          className="block w-full truncate text-left text-sm data-[closed]:text-muted-foreground data-[closed]:line-through"
-          data-closed={closed || undefined}
-        >
-          {item.title}
-        </button>
-        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-muted-foreground text-xs">
-          {item.origin.kind !== "manual" ? (
-            <Badge variant="outline" size="sm">
-              {item.origin.kind}
-            </Badge>
-          ) : null}
-          {props.environmentLabel ? (
-            <Badge variant="outline" size="sm">
-              {props.environmentLabel}
-            </Badge>
-          ) : null}
-          {props.projectTitle ? <span>{props.projectTitle}</span> : null}
-          {itemView === "snoozed" && item.snoozedUntil ? (
-            <span className="inline-flex items-center gap-1">
-              <AlarmClockIcon className="size-3" />
-              {new Date(item.snoozedUntil).toLocaleString(undefined, {
-                weekday: "short",
-                hour: "numeric",
-                minute: "2-digit",
-              })}
-            </span>
-          ) : null}
-          {item.branch ? (
-            <span className="inline-flex items-center gap-1">
-              <GitBranchIcon className="size-3" />
-              {item.branch}
-            </span>
-          ) : null}
-          {item.worktreePath ? (
-            <span className="inline-flex items-center gap-1">
-              <FolderGit2Icon className="size-3" />
-              {item.worktreePath.split("/").at(-1)}
-            </span>
-          ) : null}
-          {item.pullRequestUrls.map((url) => (
-            <a
-              key={url}
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline-offset-2 hover:underline"
-            >
-              {url.replace(/^https?:\/\/(www\.)?github\.com\//, "")}
-            </a>
-          ))}
-          {item.threadIds.map((threadId) => (
-            <InboxThreadChip
-              key={threadId}
-              threadRef={scopeThreadRef(threadEnvironmentId, threadId)}
-              onOpen={props.onOpenThread}
-            />
-          ))}
-        </div>
-      </div>
-
-      <div className="flex shrink-0 items-start gap-0.5 opacity-60 group-hover:opacity-100 group-data-[selected]:opacity-100">
-        {item.origin.url ? (
-          <Button
-            size="icon-xs"
-            variant="ghost-muted"
-            aria-label="Open source"
-            render={<a href={item.origin.url} target="_blank" rel="noopener noreferrer" />}
+      <div className="flex items-start gap-1.5">
+        {full ? (
+          <button
+            type="button"
+            aria-label="Drag to reorder"
+            disabled={!props.draggable}
+            className="mt-0.5 flex h-5 w-4 shrink-0 cursor-grab items-center justify-center text-muted-foreground/60 opacity-0 group-hover/row:opacity-100 disabled:invisible"
+            {...attributes}
+            {...listeners}
           >
-            <ExternalLinkIcon />
-          </Button>
+            <GripVerticalIcon className="size-3.5" />
+          </button>
         ) : null}
-        <StartThreadMenu
-          project={project}
-          projects={props.projects}
-          onStart={props.onStartThread}
-        />
-        {closed ? (
-          <Button
-            size="icon-xs"
-            variant="ghost-muted"
-            aria-label="Reopen"
-            onClick={() => void props.onUpdate({ state: "open" })}
+        {full && !closed ? (
+          <PriorityMenu priority={item.priority} onChange={(priority) => update({ priority })} />
+        ) : null}
+        <div
+          className="flex min-w-0 flex-1 cursor-pointer flex-col gap-1"
+          onClick={(event) => {
+            event.stopPropagation();
+            props.onSelect();
+            props.onToggle();
+          }}
+        >
+          <button
+            type="button"
+            aria-expanded={props.expanded}
+            className="flex min-w-0 items-center gap-1.5 text-left outline-hidden"
           >
-            <RotateCcwIcon />
-          </Button>
-        ) : (
-          <>
-            <SnoozeMenu
-              snoozed={itemView === "snoozed"}
-              onSnooze={(snoozedUntil) => void props.onUpdate({ snoozedUntil })}
+            <ChevronRightIcon
+              className={cn(
+                "size-3 shrink-0 text-muted-foreground transition-transform",
+                props.expanded && "rotate-90",
+              )}
             />
+            {!full && item.priority < 4 && !closed ? (
+              <Badge variant={PRIORITY_BADGE[item.priority] ?? "outline"} size="sm">
+                P{item.priority}
+              </Badge>
+            ) : null}
+            <span
+              className={cn(
+                "truncate text-sm",
+                closed ? "text-muted-foreground line-through" : "text-sidebar-foreground",
+                item.unseenActivityCount > 0 && "font-semibold",
+              )}
+            >
+              {item.title}
+            </span>
+            {item.unseenActivityCount > 0 ? (
+              <Badge size="sm" variant="info" className="shrink-0">
+                {item.unseenActivityCount} new
+              </Badge>
+            ) : null}
+          </button>
+          {meta.length > 0 || item.activityCount > 0 || labels.length > 0 ? (
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5 pl-4.5 text-muted-foreground text-xs">
+              {labels.map((label) => (
+                <InboxLabelChip
+                  key={label}
+                  label={label}
+                  active={props.labelFilter?.toLowerCase() === label.toLowerCase()}
+                  onClick={() => props.onLabelClick(label)}
+                />
+              ))}
+              {!full && item.labels.length > labels.length ? (
+                <span>+{item.labels.length - labels.length}</span>
+              ) : null}
+              {item.activityCount > 0 ? (
+                <span className="inline-flex items-center gap-0.5">
+                  <MessagesSquareIcon className="size-3" />
+                  {item.activityCount}
+                </span>
+              ) : null}
+              {meta.length > 0 ? <span className="truncate">{meta.join(" · ")}</span> : null}
+            </div>
+          ) : null}
+          {full && !props.expanded && item.lastActivity ? (
+            <span className="line-clamp-1 pl-4.5 text-muted-foreground text-xs">
+              <span className="font-medium">{item.lastActivity.author ?? "Someone"}:</span>{" "}
+              {item.lastActivity.body}
+            </span>
+          ) : null}
+        </div>
+        <ThreadStatusDot thread={props.thread} />
+        <div
+          className={cn(
+            "flex shrink-0 items-center gap-0.5",
+            full
+              ? "opacity-60 group-hover/row:opacity-100 group-data-[selected]/row:opacity-100"
+              : "absolute top-1 right-1 hidden rounded-md bg-sidebar-row-hover group-hover/row:flex",
+          )}
+          onClick={(event) => event.stopPropagation()}
+        >
+          {props.onOpenThread ? (
             <Button
               size="icon-xs"
               variant="ghost-muted"
-              aria-label="Mark done"
-              onClick={() => void props.onUpdate({ state: "done" })}
+              aria-label="Open thread"
+              onClick={props.onOpenThread}
             >
-              <CheckIcon />
+              <MessageSquareTextIcon />
             </Button>
-          </>
-        )}
-        <Menu>
-          <MenuTrigger
-            render={<Button size="icon-xs" variant="ghost-muted" aria-label="More actions" />}
-          >
-            <MoreHorizontalIcon />
-          </MenuTrigger>
-          <MenuPopup align="end">
-            <MenuGroup>
-              <MenuGroupLabel>Status</MenuGroupLabel>
-              {(["open", "in_progress", "waiting", "done"] as const).map((state) => (
-                <MenuItem
-                  key={state}
-                  disabled={item.state === state}
-                  onClick={() => void props.onUpdate({ state })}
-                >
-                  {state === "open"
-                    ? "Inbox"
-                    : state === "in_progress"
-                      ? "In progress"
-                      : state === "waiting"
-                        ? "Waiting"
-                        : "Done"}
+          ) : null}
+          {full && item.origin.url ? (
+            <Button
+              size="icon-xs"
+              variant="ghost-muted"
+              aria-label="Open source"
+              render={<a href={item.origin.url} target="_blank" rel="noopener noreferrer" />}
+            >
+              <ExternalLinkIcon />
+            </Button>
+          ) : null}
+          {closed ? (
+            <Button
+              size="icon-xs"
+              variant="ghost-muted"
+              aria-label={view === "dismissed" ? "Restore" : "Reopen"}
+              onClick={() => update({ state: "open" })}
+            >
+              <RotateCcwIcon />
+            </Button>
+          ) : (
+            <>
+              <SnoozeMenu
+                snoozed={view === "snoozed"}
+                onSnooze={(snoozedUntil) => update({ snoozedUntil })}
+              />
+              <Button
+                size="icon-xs"
+                variant="ghost-muted"
+                aria-label="Mark done"
+                onClick={() => update({ state: "done" })}
+              >
+                <CheckIcon />
+              </Button>
+            </>
+          )}
+          {full ? (
+            <Menu>
+              <MenuTrigger
+                render={<Button size="icon-xs" variant="ghost-muted" aria-label="More actions" />}
+              >
+                <MoreHorizontalIcon />
+              </MenuTrigger>
+              <MenuPopup align="end">
+                <MenuGroup>
+                  <MenuGroupLabel>Status</MenuGroupLabel>
+                  {STATE_MENU.map(({ state, label }) => (
+                    <MenuItem
+                      key={state}
+                      disabled={item.state === state}
+                      onClick={() => update({ state })}
+                    >
+                      {label}
+                    </MenuItem>
+                  ))}
+                </MenuGroup>
+                {item.unseenActivityCount > 0 ? (
+                  <MenuItem onClick={() => update({ markSeen: true })}>Mark as seen</MenuItem>
+                ) : null}
+                <MenuSeparator />
+                {item.state === "dismissed" ? (
+                  <MenuItem onClick={() => update({ state: "open" })}>
+                    <RotateCcwIcon />
+                    Restore
+                  </MenuItem>
+                ) : (
+                  <MenuItem onClick={() => update({ state: "dismissed" })}>
+                    <XIcon />
+                    Dismiss
+                    <MenuShortcut>D</MenuShortcut>
+                  </MenuItem>
+                )}
+                <MenuItem variant="destructive" onClick={props.onDelete}>
+                  <Trash2Icon />
+                  Delete
                 </MenuItem>
-              ))}
-            </MenuGroup>
-            <MenuSeparator />
-            {item.state === "dismissed" ? (
-              <MenuItem onClick={() => void props.onUpdate({ state: "open" })}>
-                <RotateCcwIcon />
-                Restore
-              </MenuItem>
-            ) : (
-              <MenuItem onClick={() => void props.onUpdate({ state: "dismissed" })}>
-                <XIcon />
-                Dismiss
-                <MenuShortcut>D</MenuShortcut>
-              </MenuItem>
-            )}
-            <MenuItem variant="destructive" onClick={props.onDelete}>
-              <Trash2Icon />
-              Delete
-            </MenuItem>
-          </MenuPopup>
-        </Menu>
+              </MenuPopup>
+            </Menu>
+          ) : null}
+        </div>
       </div>
+      {props.expanded ? <div className="pl-5">{props.children}</div> : null}
     </div>
   );
 }

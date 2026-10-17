@@ -32,12 +32,34 @@ const Migration0001 = Effect.gen(function* () {
   `;
 });
 
+// Activity is its own table: a busy PR can carry hundreds of events, and the live list only
+// needs the count and the latest one, which the item keeps.
+const Migration0002 = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql`
+    CREATE TABLE IF NOT EXISTS inbox_activity (
+      item_id TEXT NOT NULL,
+      activity_key TEXT NOT NULL,
+      occurred_at TEXT NOT NULL,
+      activity_json TEXT NOT NULL,
+      PRIMARY KEY (item_id, activity_key)
+    )
+  `;
+  yield* sql`
+    CREATE INDEX IF NOT EXISTS idx_inbox_activity_item_time
+    ON inbox_activity (item_id, occurred_at)
+  `;
+});
+
 const run = Migrator.make({});
 
 export const runInboxMigrations = Effect.fn("runInboxMigrations")(function* () {
   const executed = yield* run({
     table: INBOX_MIGRATIONS_TABLE,
-    loader: Migrator.fromRecord({ "1_InboxItems": Migration0001 }),
+    loader: Migrator.fromRecord({
+      "1_InboxItems": Migration0001,
+      "2_InboxActivity": Migration0002,
+    }),
   });
   if (executed.length > 0) {
     yield* Effect.log("Inbox migrations ran successfully").pipe(

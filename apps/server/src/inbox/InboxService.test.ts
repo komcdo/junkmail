@@ -135,3 +135,107 @@ it.effect("starting a thread sends the item as context, links it, and unsnoozes"
     }),
   ),
 );
+
+const comment = (n: number) => ({
+  key: `comment-${n}`,
+  kind: "comment",
+  author: `reviewer-${n}`,
+  body: `Comment ${n}`,
+  occurredAt: `2026-10-17T10:0${n}:00.000Z`,
+});
+
+it.effect("groups every event from one source item and ignores re-delivered ones", () =>
+  withInbox((inbox) =>
+    Effect.gen(function* () {
+      const origin = { kind: "github", externalKey: "acme/api#7" };
+      const first = yield* inbox.create({
+        title: "PR #7",
+        origin,
+        activity: [1, 2, 3].map(comment),
+      });
+      // A poll re-sends the whole history plus three new comments, one of them twice.
+      const again = yield* inbox.create({
+        title: "PR #7",
+        origin,
+        activity: [1, 2, 3, 4, 5, 6, 6].map(comment),
+      });
+
+      assert.strictEqual(first.created, true);
+      assert.strictEqual(again.created, false);
+      assert.strictEqual(again.addedActivity, 3);
+      assert.strictEqual(again.item.activityCount, 6);
+      assert.strictEqual(again.item.unseenActivityCount, 3);
+      assert.strictEqual(again.item.lastActivity?.key, "comment-6");
+      const { activity } = yield* inbox.listActivity({ id: first.item.id });
+      assert.deepStrictEqual(
+        activity.map((event) => event.key),
+        [1, 2, 3, 4, 5, 6].map((n) => `comment-${n}`),
+      );
+      assert.strictEqual((yield* inbox.list()).items.length, 1);
+
+      const seen = yield* inbox.update({ id: first.item.id, markSeen: true });
+      assert.strictEqual(seen.item.unseenActivityCount, 0);
+    }),
+  ),
+);
+
+it.effect("news on a done or snoozed item brings it back; a dismissed one stays dismissed", () =>
+  withInbox((inbox) =>
+    Effect.gen(function* () {
+      const done = { kind: "slack", externalKey: "C1/1" };
+      const snoozed = { kind: "slack", externalKey: "C1/2" };
+      const dismissed = { kind: "slack", externalKey: "C1/3" };
+      const a = yield* inbox.create({ title: "a", origin: done });
+      const b = yield* inbox.create({ title: "b", origin: snoozed });
+      const c = yield* inbox.create({ title: "c", origin: dismissed });
+      yield* inbox.update({ id: a.item.id, state: "done" });
+      yield* inbox.update({ id: b.item.id, snoozedUntil: "2099-01-01T00:00:00.000Z" });
+      yield* inbox.update({ id: c.item.id, state: "dismissed" });
+
+      const reply = [
+        { key: "m1", kind: "message", body: "any update?", occurredAt: "2026-10-17T12:00:00.000Z" },
+      ];
+      const woke = yield* inbox.create({ title: "a", origin: done, activity: reply });
+      const unsnoozed = yield* inbox.create({ title: "b", origin: snoozed, activity: reply });
+      const ignored = yield* inbox.create({ title: "c", origin: dismissed, activity: reply });
+      // Re-delivery with nothing new changes no triage.
+      yield* inbox.update({ id: a.item.id, state: "done" });
+      const quiet = yield* inbox.create({ title: "a", origin: done, activity: reply });
+
+      assert.strictEqual(woke.item.state, "open");
+      assert.strictEqual(woke.item.closedAt, null);
+      assert.strictEqual(unsnoozed.item.snoozedUntil, null);
+      assert.strictEqual(ignored.item.state, "dismissed");
+      assert.strictEqual(ignored.item.unseenActivityCount, 1);
+      assert.strictEqual(quiet.item.state, "done");
+    }),
+  ),
+);
+
+it.effect("labels merge case-insensitively and a source never removes the user's labels", () =>
+  withInbox((inbox) =>
+    Effect.gen(function* () {
+      const origin = { kind: "jira", externalKey: "ENG-1" };
+      const { item } = yield* inbox.create({ title: "t", origin, labels: ["backend", "Backend"] });
+      yield* inbox.update({ id: item.id, labels: ["backend", "urgent-fix"] });
+      const again = yield* inbox.create({ title: "t", origin, labels: ["BACKEND", "q4"] });
+      assert.deepStrictEqual(again.item.labels, ["backend", "urgent-fix", "q4"]);
+    }),
+  ),
+);
+
+it.effect("search finds items by any event's text, not just the latest", () =>
+  withInbox((inbox) =>
+    Effect.gen(function* () {
+      const { item } = yield* inbox.create({
+        title: "PR #9",
+        origin: { kind: "github", externalKey: "acme/api#9" },
+        activity: [1, 2, 3].map(comment),
+      });
+      yield* inbox.create({ title: "unrelated", activity: [{ ...comment(1), body: "100%_off" }] });
+      assert.deepStrictEqual((yield* inbox.search({ query: "comment 1" })).ids, [item.id]);
+      assert.strictEqual((yield* inbox.search({ query: "100%_" })).ids.length, 1);
+      assert.strictEqual((yield* inbox.search({ query: "0%x" })).ids.length, 0);
+    }),
+  ),
+);

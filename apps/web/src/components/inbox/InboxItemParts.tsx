@@ -34,7 +34,7 @@ export function PriorityMenu(props: {
           <button
             type="button"
             aria-label={`Priority: ${INBOX_PRIORITY_LABELS[props.priority]}`}
-            className="mt-0.5 shrink-0"
+            className="mt-0.5 flex w-7 shrink-0 justify-center"
           />
         }
       >

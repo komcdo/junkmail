@@ -63,6 +63,10 @@ export function useInboxController() {
     label: "inbox link thread",
   });
   const deleteItem = useAtomCommand(serverEnvironment.deleteInboxItem, { label: "inbox delete" });
+  const loadActivity = useAtomCommand(serverEnvironment.loadInboxActivity, {
+    label: "inbox load activity",
+    reportFailure: false,
+  });
 
   // Planned keys show immediately; the next server snapshot supersedes them.
   const [pendingOrder, setPendingOrder] = useState<{
@@ -175,9 +179,18 @@ export function useInboxController() {
         toastManager.add({ type: "error", title: "Could not open a thread" });
         return;
       }
+      // The thread gets the whole conversation, not just the preview the list carries.
+      const loaded =
+        item.activityCount === 0
+          ? null
+          : await loadActivity({ environmentId: entry.environmentId, input: { id: item.id } });
+      const activity = loaded?._tag === "Success" ? loaded.value.activity : [];
       useComposerDraftStore
         .getState()
-        .setPrompt(session.draftId, renderInboxItemPrompt(item, "Work on this inbox item."));
+        .setPrompt(
+          session.draftId,
+          renderInboxItemPrompt(item, "Work on this inbox item.", activity),
+        );
       const linked = await linkThread({
         environmentId: entry.environmentId,
         input: { id: item.id, threadId: session.threadId, linked: true },
@@ -191,7 +204,7 @@ export function useInboxController() {
           : {}),
       });
     },
-    [linkThread, newThread, update],
+    [linkThread, loadActivity, newThread, update],
   );
 
   const removeItem = useCallback(

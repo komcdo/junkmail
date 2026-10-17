@@ -3,6 +3,9 @@ import {
   InboxItem,
   InboxItemId,
   InboxItemState,
+  InboxLabel,
+  InboxListActivityResult,
+  InboxMutationResult,
   InboxPriority,
   IsoDateTime,
   OrchestratorMcpFailure,
@@ -41,7 +44,7 @@ const InboxListTool = Tool.make("t3_inbox_list", {
 
 const InboxAddTool = Tool.make("t3_inbox_add", {
   description:
-    "File a work item in the user's inbox, such as a follow-up you could not finish, a decision the user must make, or a bug you noticed outside the task. Called from a thread, the item links back to that thread. Pass origin with a stable externalKey to update the same item on later calls instead of creating duplicates.",
+    "File a work item in the user's inbox, such as a follow-up you could not finish, a decision the user must make, or a bug you noticed outside the task. Called from a thread, the item links back to that thread. Pass origin with a stable externalKey to update the same item on later calls instead of creating duplicates; activity events with the same key are stored once, and new ones mark the item as updated.",
   parameters: Schema.Struct({
     title: InboxCreateInput.fields.title,
     body: Schema.optional(Schema.String).annotate({
@@ -51,8 +54,10 @@ const InboxAddTool = Tool.make("t3_inbox_add", {
     projectId: Schema.optional(ProjectId),
     url: Schema.optional(TrimmedNonEmptyString),
     origin: InboxCreateInput.fields.origin,
+    labels: InboxCreateInput.fields.labels,
+    activity: InboxCreateInput.fields.activity,
   }),
-  success: Schema.Struct({ item: InboxItem }),
+  success: InboxMutationResult,
   failure: OrchestratorMcpFailure,
   failureMode: "return",
   dependencies,
@@ -64,7 +69,7 @@ const InboxAddTool = Tool.make("t3_inbox_add", {
 
 const InboxUpdateTool = Tool.make("t3_inbox_update", {
   description:
-    "Update an inbox item: change state (mark done, dismiss, reopen), priority, snooze (snoozedUntil, or null to unsnooze), title, body, branch, worktree path, or pull request URLs.",
+    "Update an inbox item: change state (mark done, dismiss, reopen), priority, snooze (snoozedUntil, or null to unsnooze), title, body, labels, branch, worktree path, or pull request URLs.",
   parameters: Schema.Struct({
     id: InboxItemId,
     title: Schema.optional(TrimmedNonEmptyString),
@@ -75,6 +80,9 @@ const InboxUpdateTool = Tool.make("t3_inbox_update", {
     branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
     worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
     pullRequestUrls: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+    labels: Schema.optional(Schema.Array(InboxLabel)).annotate({
+      description: "Replaces the item's labels.",
+    }),
   }),
   success: Schema.Struct({ item: InboxItem }),
   failure: OrchestratorMcpFailure,
@@ -86,4 +94,22 @@ const InboxUpdateTool = Tool.make("t3_inbox_update", {
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true);
 
-export const InboxToolkit = Toolkit.make(InboxListTool, InboxAddTool, InboxUpdateTool);
+const InboxActivityTool = Tool.make("t3_inbox_activity", {
+  description:
+    "Read every event grouped under an inbox item, oldest first: the Slack messages, PR comments, or reviews its source reported.",
+  parameters: Schema.Struct({ id: InboxItemId }),
+  success: InboxListActivityResult,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Read inbox item activity")
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+
+export const InboxToolkit = Toolkit.make(
+  InboxListTool,
+  InboxAddTool,
+  InboxUpdateTool,
+  InboxActivityTool,
+);

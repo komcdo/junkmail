@@ -1,4 +1,4 @@
-import { Navigate, useLocation } from "@tanstack/react-router";
+import { Navigate, useLocation, useRouteContext } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
 import { useEnvironments } from "../../state/environments";
@@ -18,13 +18,10 @@ const FULL_WIDTH_CSS = `
 export function PrimarySidebar(props: { readonly threads: ReactNode }) {
   const [mode] = usePrimarySidebarMode();
   const { isMobile, open } = useSidebar();
-  const nothingSelected = useLocation({
-    select: (location) =>
-      location.pathname === "/inbox" &&
-      !(typeof location.search.item === "string" && location.search.item.length > 0),
-  });
+  // The inbox is the page at /inbox; it shares the window only while a thread is open.
+  const onInbox = useLocation({ select: (location) => location.pathname === "/inbox" });
   if (mode === "threads") return props.threads;
-  const full = nothingSelected && open && !isMobile;
+  const full = onInbox && open && !isMobile;
   return (
     <>
       {full ? <style>{FULL_WIDTH_CSS}</style> : null}
@@ -35,15 +32,18 @@ export function PrimarySidebar(props: { readonly threads: ReactNode }) {
 
 /**
  * junkmail: with the inbox as the sidebar, `/` lands on the inbox instead of auto-starting a
- * draft. Without environments upstream's onboarding still shows.
+ * draft. The hosted app with no environment still shows upstream's onboarding.
  */
 export function withInboxLanding<P extends object>(Component: (props: P) => ReactNode) {
   return function InboxLanding(props: P) {
     const [mode] = usePrimarySidebarMode();
+    const { authGateState } = useRouteContext({ from: "__root__" });
     const { environments, isReady } = useEnvironments();
     if (mode === "threads") return <Component {...props} />;
-    if (!isReady) return null;
-    if (environments.length === 0) return <Component {...props} />;
+    if (authGateState.status === "hosted-static") {
+      if (!isReady) return null;
+      if (environments.length === 0) return <Component {...props} />;
+    }
     return <Navigate to="/inbox" replace />;
   };
 }

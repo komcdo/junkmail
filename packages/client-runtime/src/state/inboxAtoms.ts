@@ -4,6 +4,7 @@ import type { Atom } from "effect/reactivity";
 import type * as EnvironmentRegistry from "../connection/registry.ts";
 import {
   createEnvironmentRpcCommand,
+  createEnvironmentRpcQueryAtomFamily,
   createEnvironmentRpcSubscriptionAtomFamily,
 } from "./runtime.ts";
 
@@ -15,6 +16,18 @@ export function createInboxEnvironmentAtoms<R, E>(
     inboxLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:inbox:live",
       tag: WS_METHODS.inboxSubscribe,
+    }),
+    inboxActivity: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:inbox:activity",
+      tag: WS_METHODS.inboxListActivity,
+    }),
+    inboxSearch: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:inbox:search",
+      tag: WS_METHODS.inboxSearch,
+    }),
+    loadInboxActivity: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:inbox:load-activity",
+      tag: WS_METHODS.inboxListActivity,
     }),
     createInboxItem: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:inbox:create",

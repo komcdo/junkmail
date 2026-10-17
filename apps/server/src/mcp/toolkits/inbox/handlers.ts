@@ -47,6 +47,12 @@ const handlers = {
       return yield* inbox.update(input).pipe(Effect.mapError(toFailure));
     }),
   ),
+  t3_inbox_activity: McpToolAccess.reads((input) =>
+    Effect.gen(function* () {
+      const inbox = yield* InboxService.InboxService;
+      return yield* inbox.listActivity(input).pipe(Effect.mapError(toFailure));
+    }),
+  ),
 } satisfies McpToolAccess.Handlers<typeof InboxToolkit.tools>;
 
 export const layer = McpToolAccess.toLayer(InboxToolkit, handlers);

@@ -1,19 +1,27 @@
 import {
   CommandId,
+  INBOX_ACTIVITY_PREVIEW_LENGTH,
   INBOX_CLOSED_STATES,
+  InboxActivity,
   InboxError,
   InboxItem,
   InboxItemId,
   ThreadId,
+  normalizeInboxLabels,
   renderInboxItemPrompt,
+  type InboxActivityInput,
   type InboxCreateInput,
   type InboxDeleteInput,
   type InboxDeleteResult,
   type InboxItemState,
   type InboxLinkThreadInput,
+  type InboxListActivityInput,
+  type InboxListActivityResult,
   type InboxListResult,
   type InboxMutationResult,
   type InboxReorderInput,
+  type InboxSearchInput,
+  type InboxSearchResult,
   type InboxReorderResult,
   type InboxStartThreadInput,
   type InboxStartThreadResult,
@@ -38,7 +46,14 @@ interface InboxItemRow {
   readonly item_json: string;
 }
 
+interface InboxActivityRow {
+  readonly activity_key: string;
+  readonly activity_json: string;
+}
+
 const decodeItemJson = Schema.decodeUnknownEffect(Schema.fromJsonString(InboxItem));
+const decodeActivityJson = Schema.decodeUnknownEffect(Schema.fromJsonString(InboxActivity));
+const encodeActivityJson = Schema.encodeEffect(Schema.fromJsonString(InboxActivity));
 const encodeItemJson = Schema.encodeEffect(Schema.fromJsonString(InboxItem));
 const isInboxError = Schema.is(InboxError);
 
@@ -57,6 +72,31 @@ function withState(item: InboxItem, state: InboxItemState, now: string): InboxIt
   return { ...item, state, closedAt: INBOX_CLOSED_STATES.has(state) ? now : null };
 }
 
+function toActivity(input: InboxActivityInput): InboxActivity {
+  return {
+    key: input.key,
+    kind: input.kind,
+    author: input.author ?? null,
+    body: input.body,
+    url: input.url ?? null,
+    occurredAt: input.occurredAt,
+  };
+}
+
+function previewOf(activity: InboxActivity): InboxActivity {
+  return activity.body.length <= INBOX_ACTIVITY_PREVIEW_LENGTH
+    ? activity
+    : { ...activity, body: `${activity.body.slice(0, INBOX_ACTIVITY_PREVIEW_LENGTH - 1)}…` };
+}
+
+function latestOf(current: InboxActivity | null, added: ReadonlyArray<InboxActivity>) {
+  let latest = current;
+  for (const activity of added) {
+    if (latest === null || activity.occurredAt >= latest.occurredAt) latest = activity;
+  }
+  return latest === null ? null : previewOf(latest);
+}
+
 export class InboxService extends Context.Service<
   InboxService,
   {
@@ -73,6 +113,10 @@ export class InboxService extends Context.Service<
     readonly startThread: (
       input: InboxStartThreadInput,
     ) => Effect.Effect<InboxStartThreadResult, InboxError>;
+    readonly listActivity: (
+      input: InboxListActivityInput,
+    ) => Effect.Effect<InboxListActivityResult, InboxError>;
+    readonly search: (input: InboxSearchInput) => Effect.Effect<InboxSearchResult, InboxError>;
   }
 >()("t3/inbox/InboxService") {}
 
@@ -168,63 +212,142 @@ export const layer = Layer.effect(
         Effect.mapError((cause) => inboxError("Could not load inbox item.", { cause })),
       );
 
-    const create: InboxService["Service"]["create"] = (input) =>
+    /** Stores events not already stored for the item and returns the new ones. */
+    const appendActivity = (itemId: InboxItemId, inputs: ReadonlyArray<InboxActivityInput>) =>
       Effect.gen(function* () {
-        const now = yield* nowIso;
-        const origin = input.origin ?? { kind: "manual", externalKey: null };
-        if (origin.externalKey !== null) {
-          const existing = yield* findByOrigin(origin.kind, origin.externalKey);
-          if (existing !== null) {
-            // Re-delivery from a source refreshes content but never the user's triage.
+        if (inputs.length === 0) return [];
+        const rows = yield* sql<Pick<InboxActivityRow, "activity_key">>`
+          SELECT activity_key FROM inbox_activity WHERE item_id = ${itemId}
+        `;
+        const known = new Set(rows.map((row) => row.activity_key));
+        const added: InboxActivity[] = [];
+        for (const input of inputs) {
+          if (known.has(input.key)) continue;
+          known.add(input.key);
+          const activity = toActivity(input);
+          const json = yield* encodeActivityJson(activity);
+          yield* sql`
+            INSERT INTO inbox_activity (item_id, activity_key, occurred_at, activity_json)
+            VALUES (${itemId}, ${activity.key}, ${activity.occurredAt}, ${json})
+          `;
+          added.push(activity);
+        }
+        return added;
+      }).pipe(
+        Effect.mapError((cause) => inboxError("Could not save inbox activity.", { itemId, cause })),
+      );
+
+    const create: InboxService["Service"]["create"] = (input) =>
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            const now = yield* nowIso;
+            const origin = input.origin ?? { kind: "manual", externalKey: null };
+            const inputLabels = input.labels ?? [];
+            if (origin.externalKey !== null) {
+              const existing = yield* findByOrigin(origin.kind, origin.externalKey);
+              if (existing !== null) {
+                // Re-delivery refreshes content and adds new events, never the user's triage,
+                // except that news on a finished or snoozed item brings it back.
+                const added = yield* appendActivity(existing.id, input.activity ?? []);
+                const woken = added.length > 0;
+                const refreshed: InboxItem = {
+                  ...existing,
+                  title: input.title,
+                  ...(input.body === undefined ? {} : { body: input.body }),
+                  origin: { ...existing.origin, url: input.url ?? existing.origin.url },
+                  labels: normalizeInboxLabels([...existing.labels, ...inputLabels]),
+                  activityCount: existing.activityCount + added.length,
+                  unseenActivityCount: existing.unseenActivityCount + added.length,
+                  lastActivity: latestOf(existing.lastActivity, added),
+                  snoozedUntil: woken ? null : existing.snoozedUntil,
+                  updatedAt: now,
+                };
+                const item =
+                  woken && existing.state === "done"
+                    ? withState(refreshed, "open", now)
+                    : refreshed;
+                yield* writeItem(item);
+                return { item, created: false, addedActivity: added.length };
+              }
+            }
+            // A retried command with the same id must not create a second item.
+            const id = InboxItemId.make(
+              input.commandId === undefined
+                ? `inbox-${yield* crypto
+                    .randomUUIDv4()
+                    .pipe(
+                      Effect.mapError((cause) =>
+                        inboxError("Could not generate inbox item id.", { cause }),
+                      ),
+                    )}`
+                : `inbox-${input.commandId}`,
+            );
+            const replay = yield* findItem(id);
+            if (replay !== null) return { item: replay, created: false, addedActivity: 0 };
+            const added = yield* appendActivity(id, input.activity ?? []);
             const item: InboxItem = {
-              ...existing,
+              id,
               title: input.title,
-              ...(input.body === undefined ? {} : { body: input.body }),
-              origin: { ...existing.origin, url: input.url ?? existing.origin.url },
+              body: input.body ?? null,
+              state: "open",
+              priority: input.priority ?? 4,
+              orderKey: null,
+              snoozedUntil: null,
+              origin: { ...origin, url: input.url ?? null },
+              projectId: input.projectId ?? null,
+              threadIds: input.threadId === undefined ? [] : [input.threadId],
+              worktreePath: null,
+              branch: null,
+              pullRequestUrls: [],
+              createdBy: input.createdBy ?? "user",
+              createdAt: now,
               updatedAt: now,
+              closedAt: null,
+              labels: normalizeInboxLabels(inputLabels),
+              activityCount: added.length,
+              // A new item is unseen as a whole; the count tracks news on items already seen.
+              unseenActivityCount: 0,
+              lastActivity: latestOf(null, added),
             };
             yield* writeItem(item);
-            yield* notifyChanged;
-            return { item };
-          }
-        }
-        // A retried command with the same id must not create a second item.
-        const id = InboxItemId.make(
-          input.commandId === undefined
-            ? `inbox-${yield* crypto
-                .randomUUIDv4()
-                .pipe(
-                  Effect.mapError((cause) =>
-                    inboxError("Could not generate inbox item id.", { cause }),
-                  ),
-                )}`
-            : `inbox-${input.commandId}`,
+            return { item, created: true, addedActivity: added.length };
+          }),
+        )
+        .pipe(
+          Effect.mapError((cause) =>
+            isInboxError(cause) ? cause : inboxError("Could not save inbox item.", { cause }),
+          ),
+          Effect.tap(() => notifyChanged),
         );
-        const replay = yield* findItem(id);
-        if (replay !== null) return { item: replay };
-        const item: InboxItem = {
-          id,
-          title: input.title,
-          body: input.body ?? null,
-          state: "open",
-          priority: input.priority ?? 4,
-          orderKey: null,
-          snoozedUntil: null,
-          origin: { ...origin, url: input.url ?? null },
-          projectId: input.projectId ?? null,
-          threadIds: input.threadId === undefined ? [] : [input.threadId],
-          worktreePath: null,
-          branch: null,
-          pullRequestUrls: [],
-          createdBy: input.createdBy ?? "user",
-          createdAt: now,
-          updatedAt: now,
-          closedAt: null,
-        };
-        yield* writeItem(item);
-        yield* notifyChanged;
-        return { item };
-      });
+
+    const listActivity: InboxService["Service"]["listActivity"] = (input) =>
+      sql<InboxActivityRow>`
+        SELECT activity_key, activity_json FROM inbox_activity
+        WHERE item_id = ${input.id}
+        ORDER BY occurred_at ASC, activity_key ASC
+      `.pipe(
+        Effect.flatMap((rows) =>
+          Effect.forEach(rows, (row) => decodeActivityJson(row.activity_json), { concurrency: 1 }),
+        ),
+        Effect.map((activity) => ({ activity })),
+        Effect.mapError((cause) =>
+          inboxError("Could not load inbox activity.", { itemId: input.id, cause }),
+        ),
+      );
+
+    // SQLite LIKE is case-insensitive for ASCII; escape the wildcards a query may contain.
+    const search: InboxService["Service"]["search"] = (input) => {
+      const pattern = `%${input.query.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+      return sql<{ readonly item_id: string }>`
+        SELECT DISTINCT item_id FROM inbox_activity
+        WHERE activity_json LIKE ${pattern} ESCAPE '\\'
+        LIMIT 500
+      `.pipe(
+        Effect.map((rows) => ({ ids: rows.map((row) => InboxItemId.make(row.item_id)) })),
+        Effect.mapError((cause) => inboxError("Could not search inbox activity.", { cause })),
+      );
+    };
 
     const update: InboxService["Service"]["update"] = (input) =>
       modify(input.id, (item, now) => {
@@ -240,6 +363,8 @@ export const layer = Layer.effect(
           ...(input.pullRequestUrls === undefined
             ? {}
             : { pullRequestUrls: input.pullRequestUrls }),
+          ...(input.labels === undefined ? {} : { labels: normalizeInboxLabels(input.labels) }),
+          ...(input.markSeen === true ? { unseenActivityCount: 0 } : {}),
         };
         return input.state === undefined ? next : withState(next, input.state, now);
       });
@@ -272,17 +397,24 @@ export const layer = Layer.effect(
       });
 
     const deleteItem: InboxService["Service"]["delete"] = (input) =>
-      sql`DELETE FROM inbox_items WHERE item_id = ${input.id}`.pipe(
-        Effect.mapError((cause) =>
-          inboxError("Could not delete inbox item.", { itemId: input.id, cause }),
-        ),
-        Effect.andThen(notifyChanged),
-        Effect.as({ id: input.id }),
-      );
+      sql
+        .withTransaction(
+          sql`DELETE FROM inbox_activity WHERE item_id = ${input.id}`.pipe(
+            Effect.andThen(sql`DELETE FROM inbox_items WHERE item_id = ${input.id}`),
+          ),
+        )
+        .pipe(
+          Effect.mapError((cause) =>
+            inboxError("Could not delete inbox item.", { itemId: input.id, cause }),
+          ),
+          Effect.andThen(notifyChanged),
+          Effect.as({ id: input.id }),
+        );
 
     const startThread: InboxService["Service"]["startThread"] = (input) =>
       Effect.gen(function* () {
         const item = yield* get(input.id);
+        const { activity } = yield* listActivity({ id: item.id });
         const key = input.commandId ?? `${item.id}:${item.threadIds.length}`;
         const launched = yield* threadLaunch
           .launch({
@@ -294,7 +426,7 @@ export const layer = Layer.effect(
             interactionMode: input.interactionMode,
             workspaceStrategy: input.workspaceStrategy,
             initialMessage: {
-              text: renderInboxItemPrompt(item, input.prompt),
+              text: renderInboxItemPrompt(item, input.prompt, activity),
               attachments: [],
             },
             createdBy: "user",
@@ -330,6 +462,8 @@ export const layer = Layer.effect(
       linkThread,
       delete: deleteItem,
       startThread,
+      listActivity,
+      search,
     });
   }),
 );

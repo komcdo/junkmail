@@ -17,10 +17,14 @@ import {
   InboxDeleteResult,
   InboxError,
   InboxLinkThreadInput,
+  InboxListActivityInput,
+  InboxListActivityResult,
   InboxListInput,
   InboxListResult,
   InboxMutationResult,
   InboxReorderInput,
+  InboxSearchInput,
+  InboxSearchResult,
   InboxReorderResult,
   InboxStartThreadInput,
   InboxStartThreadResult,
@@ -36,6 +40,8 @@ export const INBOX_WS_METHODS = {
   inboxLinkThread: "inbox.linkThread",
   inboxDelete: "inbox.delete",
   inboxStartThread: "inbox.startThread",
+  inboxListActivity: "inbox.listActivity",
+  inboxSearch: "inbox.search",
 } as const;
 
 const InboxRpcError = Schema.Union([InboxError, EnvironmentAuthorizationError]);
@@ -82,6 +88,16 @@ export const InboxRpcGroup = RpcGroup.make(
     success: InboxStartThreadResult,
     error: InboxRpcError,
   }),
+  Rpc.make(INBOX_WS_METHODS.inboxListActivity, {
+    payload: InboxListActivityInput,
+    success: InboxListActivityResult,
+    error: InboxRpcError,
+  }),
+  Rpc.make(INBOX_WS_METHODS.inboxSearch, {
+    payload: InboxSearchInput,
+    success: InboxSearchResult,
+    error: InboxRpcError,
+  }),
 );
 
 /** Mutations the client checks before sending; spread into `CLIENT_GUARDED_RPC_SCOPES`. */
@@ -98,6 +114,8 @@ export const INBOX_CLIENT_GUARDED_RPC_SCOPES = {
 export const INBOX_READ_RPC_SCOPES = {
   [INBOX_WS_METHODS.inboxList]: AuthOrchestrationReadScope,
   [INBOX_WS_METHODS.inboxSubscribe]: AuthOrchestrationReadScope,
+  [INBOX_WS_METHODS.inboxListActivity]: AuthOrchestrationReadScope,
+  [INBOX_WS_METHODS.inboxSearch]: AuthOrchestrationReadScope,
 } as const;
 
 /** Span aggregate for every inbox method; spread into the server's `RPC_AGGREGATES`. */

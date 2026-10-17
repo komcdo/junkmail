@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import {
@@ -47,6 +48,40 @@ export const InboxItemOrigin = Schema.Struct({
 });
 export type InboxItemOrigin = typeof InboxItemOrigin.Type;
 
+export const InboxLabel = TrimmedNonEmptyString.check(Schema.isMaxLength(40)).annotate({
+  description: "A free-form tag, such as 'backend' or 'needs-review'. Compared case-insensitively.",
+});
+export type InboxLabel = typeof InboxLabel.Type;
+
+/**
+ * One event a source reports about an item: a Slack message, a PR comment, a review. The
+ * key is the event's id in the source, so a re-delivered event is never stored twice.
+ */
+export const InboxActivity = Schema.Struct({
+  key: TrimmedNonEmptyString,
+  kind: TrimmedNonEmptyString.annotate({
+    description: "What happened: 'message', 'comment', 'review', 'commit', 'status', ...",
+  }),
+  author: Schema.NullOr(TrimmedNonEmptyString),
+  body: Schema.String,
+  url: Schema.NullOr(TrimmedNonEmptyString),
+  occurredAt: IsoDateTime,
+});
+export type InboxActivity = typeof InboxActivity.Type;
+
+export const InboxActivityInput = Schema.Struct({
+  key: InboxActivity.fields.key,
+  kind: InboxActivity.fields.kind,
+  author: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  body: Schema.String,
+  url: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  occurredAt: IsoDateTime,
+});
+export type InboxActivityInput = typeof InboxActivityInput.Type;
+
+/** Previews keep the live list small; the full bodies load per item with `inbox.listActivity`. */
+export const INBOX_ACTIVITY_PREVIEW_LENGTH = 280;
+
 export const InboxItem = Schema.Struct({
   id: InboxItemId,
   title: TrimmedNonEmptyString,
@@ -66,6 +101,11 @@ export const InboxItem = Schema.Struct({
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   closedAt: Schema.NullOr(IsoDateTime),
+  labels: Schema.Array(InboxLabel).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  activityCount: Schema.Int.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
+  /** Activity that arrived after the item was created and the user has not looked at yet. */
+  unseenActivityCount: Schema.Int.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
+  lastActivity: Schema.NullOr(InboxActivity).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
 });
 export type InboxItem = typeof InboxItem.Type;
 
@@ -97,6 +137,13 @@ export const InboxCreateInput = Schema.Struct({
     description: "Link the new item to this thread, such as a follow-up an agent filed.",
   }),
   createdBy: Schema.optional(InboxCreatedBy),
+  labels: Schema.optional(Schema.Array(InboxLabel)).annotate({
+    description: "Added to the item's labels; an update never removes labels the user set.",
+  }),
+  activity: Schema.optional(Schema.Array(InboxActivityInput)).annotate({
+    description:
+      "Events to group under the item. Re-sending one with the same key is a no-op, so a source can deliver its whole history every poll.",
+  }),
 });
 export type InboxCreateInput = typeof InboxCreateInput.Type;
 
@@ -111,6 +158,10 @@ export const InboxUpdateInput = Schema.Struct({
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   pullRequestUrls: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  labels: Schema.optional(Schema.Array(InboxLabel)),
+  markSeen: Schema.optional(Schema.Boolean).annotate({
+    description: "Clear the unseen-activity count, as when the user opens the item.",
+  }),
 });
 export type InboxUpdateInput = typeof InboxUpdateInput.Type;
 
@@ -143,7 +194,31 @@ export const InboxStartThreadInput = Schema.Struct({
 });
 export type InboxStartThreadInput = typeof InboxStartThreadInput.Type;
 
-export const InboxMutationResult = Schema.Struct({ item: InboxItem });
+export const InboxListActivityInput = Schema.Struct({
+  id: InboxItemId,
+  /** Ignored by the server; clients pass the activity count so a new event refetches. */
+  revision: Schema.optional(Schema.Int),
+});
+export type InboxListActivityInput = typeof InboxListActivityInput.Type;
+
+export const InboxListActivityResult = Schema.Struct({ activity: Schema.Array(InboxActivity) });
+export type InboxListActivityResult = typeof InboxListActivityResult.Type;
+
+export const InboxSearchInput = Schema.Struct({
+  query: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
+});
+export type InboxSearchInput = typeof InboxSearchInput.Type;
+
+/** Items whose stored activity matches; the client already matches titles and labels. */
+export const InboxSearchResult = Schema.Struct({ ids: Schema.Array(InboxItemId) });
+export type InboxSearchResult = typeof InboxSearchResult.Type;
+
+export const InboxMutationResult = Schema.Struct({
+  item: InboxItem,
+  /** Set by create: false when the origin matched an existing item that was updated instead. */
+  created: Schema.optional(Schema.Boolean),
+  addedActivity: Schema.optional(Schema.Int),
+});
 export type InboxMutationResult = typeof InboxMutationResult.Type;
 
 export const InboxReorderResult = Schema.Struct({ items: Schema.Array(InboxItem) });
@@ -161,14 +236,36 @@ export class InboxError extends Schema.TaggedError<InboxError>()("InboxError", {
   cause: Schema.optional(Schema.Defect()),
 }) {}
 
+/** Labels compare case-insensitively; the first spelling seen wins. */
+export function normalizeInboxLabels(labels: ReadonlyArray<string>): string[] {
+  const seen = new Map<string, string>();
+  for (const raw of labels) {
+    const label = raw.trim();
+    if (label.length > 0 && !seen.has(label.toLowerCase())) seen.set(label.toLowerCase(), label);
+  }
+  return [...seen.values()];
+}
+
 /** First message of a thread started from an item: instructions, then the item as quoted context. */
-export function renderInboxItemPrompt(item: InboxItem, prompt?: string): string {
+export function renderInboxItemPrompt(
+  item: InboxItem,
+  prompt?: string,
+  activity: ReadonlyArray<InboxActivity> = [],
+): string {
   const lines: string[] = [];
   const instructions = prompt?.trim();
   if (instructions) lines.push(instructions, "");
   lines.push(`Inbox item: ${item.title}`);
   if (item.origin.url) lines.push(`Link: ${item.origin.url}`);
   for (const url of item.pullRequestUrls) lines.push(`Pull request: ${url}`);
+  if (item.labels.length > 0) lines.push(`Labels: ${item.labels.join(", ")}`);
   if (item.body?.trim()) lines.push("", item.body.trim());
+  if (activity.length > 0) {
+    lines.push("", `Activity (${activity.length}):`);
+    for (const event of activity) {
+      const who = event.author ?? "unknown";
+      lines.push(`- ${event.occurredAt} ${event.kind} by ${who}: ${event.body.trim()}`);
+    }
+  }
   return lines.join("\n");
 }

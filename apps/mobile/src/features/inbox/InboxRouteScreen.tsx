@@ -195,8 +195,17 @@ function InboxItemRow(props: {
   const { item } = props.entry;
   const closed = item.state === "done" || item.state === "dismissed";
   const snoozed = inboxItemView(item, props.now) === "snoozed";
+  const meta = [
+    item.unseenActivityCount > 0 ? `${item.unseenActivityCount} new` : null,
+    item.origin.kind !== "manual" && item.origin.kind !== "thread" ? item.origin.kind : null,
+    item.activityCount > 0 ? `${item.activityCount} updates` : null,
+    ...item.labels.map((label) => `#${label}`),
+    item.branch,
+    item.pullRequestUrls.length > 0 ? `${item.pullRequestUrls.length} PR` : null,
+  ].filter((part): part is string => !!part);
   const actions = useMemo<MenuAction[]>(
     () => [
+      ...(item.unseenActivityCount > 0 ? [{ id: "seen", title: "Mark as seen" }] : []),
       closed
         ? { id: "reopen", title: item.state === "dismissed" ? "Restore" : "Reopen" }
         : { id: "done", title: "Done" },
@@ -231,10 +240,19 @@ function InboxItemRow(props: {
         ? []
         : [{ id: "dismiss", title: "Dismiss", attributes: { destructive: true } }]),
     ],
-    [closed, item.origin.url, item.priority, item.state, props.now, snoozed],
+    [
+      closed,
+      item.origin.url,
+      item.priority,
+      item.state,
+      item.unseenActivityCount,
+      props.now,
+      snoozed,
+    ],
   );
   const onAction = (id: string) => {
     if (id === "done") props.onUpdate({ state: "done" });
+    else if (id === "seen") props.onUpdate({ markSeen: true });
     else if (id === "reopen") props.onUpdate({ state: "open" });
     else if (id === "dismiss") props.onUpdate({ state: "dismissed" });
     else if (id === "unsnooze") props.onUpdate({ snoozedUntil: null });
@@ -272,15 +290,9 @@ function InboxItemRow(props: {
           >
             {item.title}
           </Text>
-          {item.origin.kind !== "manual" || item.branch || item.pullRequestUrls.length > 0 ? (
+          {meta.length > 0 ? (
             <Text numberOfLines={1} className="text-foreground-muted text-xs">
-              {[
-                item.origin.kind !== "manual" ? item.origin.kind : null,
-                item.branch,
-                item.pullRequestUrls.length > 0 ? `${item.pullRequestUrls.length} PR` : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
+              {meta.join(" · ")}
             </Text>
           ) : null}
         </View>
