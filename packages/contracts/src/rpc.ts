@@ -349,6 +349,21 @@ import {
   ScheduledTaskUpsertInput,
   ScheduledTaskMutationResult,
 } from "./scheduledTask.ts";
+import {
+  InboxCreateInput,
+  InboxDeleteInput,
+  InboxDeleteResult,
+  InboxError,
+  InboxLinkThreadInput,
+  InboxListInput,
+  InboxListResult,
+  InboxMutationResult,
+  InboxReorderInput,
+  InboxReorderResult,
+  InboxStartThreadInput,
+  InboxStartThreadResult,
+  InboxUpdateInput,
+} from "./inbox.ts";
 import { SecretRequestAnswerInput, SecretRequestError } from "./secretRequest.ts";
 import {
   ProjectCloneActionInput,
@@ -512,6 +527,15 @@ export const WS_METHODS = {
   secretsAnswerRequest: "secrets.answerRequest",
   scheduledTasksListWebhookDeliveries: "scheduledTasks.listWebhookDeliveries",
   scheduledTasksGetWebhookDelivery: "scheduledTasks.getWebhookDelivery",
+
+  inboxList: "inbox.list",
+  inboxSubscribe: "inbox.subscribe",
+  inboxCreate: "inbox.create",
+  inboxUpdate: "inbox.update",
+  inboxReorder: "inbox.reorder",
+  inboxLinkThread: "inbox.linkThread",
+  inboxDelete: "inbox.delete",
+  inboxStartThread: "inbox.startThread",
 
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
   cloudInstallRelayClient: "cloud.installRelayClient",
@@ -1823,6 +1847,49 @@ const WsScheduledTasksGetWebhookDeliveryRpc = Rpc.make(
   },
 );
 
+const InboxRpcError = Schema.Union([InboxError, EnvironmentAuthorizationError]);
+const WsInboxListRpc = Rpc.make(WS_METHODS.inboxList, {
+  payload: InboxListInput,
+  success: InboxListResult,
+  error: InboxRpcError,
+});
+const WsInboxSubscribeRpc = Rpc.make(WS_METHODS.inboxSubscribe, {
+  payload: InboxListInput,
+  success: InboxListResult,
+  error: InboxRpcError,
+  stream: true,
+});
+const WsInboxCreateRpc = Rpc.make(WS_METHODS.inboxCreate, {
+  payload: InboxCreateInput,
+  success: InboxMutationResult,
+  error: InboxRpcError,
+});
+const WsInboxUpdateRpc = Rpc.make(WS_METHODS.inboxUpdate, {
+  payload: InboxUpdateInput,
+  success: InboxMutationResult,
+  error: InboxRpcError,
+});
+const WsInboxReorderRpc = Rpc.make(WS_METHODS.inboxReorder, {
+  payload: InboxReorderInput,
+  success: InboxReorderResult,
+  error: InboxRpcError,
+});
+const WsInboxLinkThreadRpc = Rpc.make(WS_METHODS.inboxLinkThread, {
+  payload: InboxLinkThreadInput,
+  success: InboxMutationResult,
+  error: InboxRpcError,
+});
+const WsInboxDeleteRpc = Rpc.make(WS_METHODS.inboxDelete, {
+  payload: InboxDeleteInput,
+  success: InboxDeleteResult,
+  error: InboxRpcError,
+});
+const WsInboxStartThreadRpc = Rpc.make(WS_METHODS.inboxStartThread, {
+  payload: InboxStartThreadInput,
+  success: InboxStartThreadResult,
+  error: InboxRpcError,
+});
+
 const WsSubscribeAuthAccessRpc = Rpc.make(WS_METHODS.subscribeAuthAccess, {
   payload: Schema.Struct({}),
   success: AuthAccessStreamEvent,
@@ -1911,6 +1978,14 @@ export const WsRpcGroup = RpcGroup.make(
   WsSecretsAnswerRequestRpc,
   WsScheduledTasksListWebhookDeliveriesRpc,
   WsScheduledTasksGetWebhookDeliveryRpc,
+  WsInboxListRpc,
+  WsInboxSubscribeRpc,
+  WsInboxCreateRpc,
+  WsInboxUpdateRpc,
+  WsInboxReorderRpc,
+  WsInboxLinkThreadRpc,
+  WsInboxDeleteRpc,
+  WsInboxStartThreadRpc,
   WsServerReportClientActivityRpc,
   WsServerReportHostPowerStateRpc,
   WsServerGetBackgroundPolicyRpc,

@@ -124,6 +124,7 @@ import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts"
 import * as ThreadMessageIntake from "./orchestration-v2/ThreadMessageIntake.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
+import * as Inbox from "./inbox/InboxService.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import {
   archivedShellStreamItemFromThreadShell,
@@ -1197,6 +1198,7 @@ const layerWsRpc = (
       const commandOutputHub = yield* CommandOutputHub.CommandOutputHub;
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
+      const inbox = yield* Inbox.InboxService;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const pullRequests = yield* PullRequestService.PullRequestService;
       const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
@@ -2045,6 +2047,26 @@ const layerWsRpc = (
         [WS_METHODS.scheduledTasksRotateWebhookToken]: (input) =>
           Effect.annotateCurrentSpan({ "scheduled_task.id": input.id }).pipe(
             Effect.andThen(scheduledTasks.rotateWebhookToken(input)),
+          ),
+        [WS_METHODS.inboxList]: (_input) => inbox.list(),
+        [WS_METHODS.inboxSubscribe]: (_input) => inbox.subscribeList(),
+        [WS_METHODS.inboxCreate]: (input) => inbox.create(input),
+        [WS_METHODS.inboxUpdate]: (input) =>
+          Effect.annotateCurrentSpan({ "inbox.item_id": input.id }).pipe(
+            Effect.andThen(inbox.update(input)),
+          ),
+        [WS_METHODS.inboxReorder]: (input) => inbox.reorder(input),
+        [WS_METHODS.inboxLinkThread]: (input) =>
+          Effect.annotateCurrentSpan({ "inbox.item_id": input.id }).pipe(
+            Effect.andThen(inbox.linkThread(input)),
+          ),
+        [WS_METHODS.inboxDelete]: (input) =>
+          Effect.annotateCurrentSpan({ "inbox.item_id": input.id }).pipe(
+            Effect.andThen(inbox.delete(input)),
+          ),
+        [WS_METHODS.inboxStartThread]: (input) =>
+          Effect.annotateCurrentSpan({ "inbox.item_id": input.id }).pipe(
+            Effect.andThen(inbox.startThread(input)),
           ),
         [WS_METHODS.secretsAnswerRequest]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
