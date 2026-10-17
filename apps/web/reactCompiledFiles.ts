@@ -96,4 +96,6 @@ export const REACT_COMPILED_FILES = [
   "apps/web/src/components/pullRequest/PullRequestDetailPanel.tsx",
   "apps/web/src/components/ThreadTerminalDrawer.tsx",
   "apps/web/src/components/settings/SettingsPanels.tsx",
+  "apps/web/src/components/pullRequest/PullRequestLabelPicker.tsx",
+  "apps/web/src/components/pullRequest/PullRequestReviewerPicker.tsx",
 ] as const;
