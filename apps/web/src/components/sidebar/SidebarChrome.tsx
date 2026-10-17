@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
+import { ArrowLeftIcon, ChartNoAxesColumnIcon, InboxIcon, SettingsIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
@@ -25,6 +25,7 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import { isSidebarUtilityPage, useNavigateToMainApp } from "./mainAppLocation";
+import { useInboxActionableCount } from "../inbox/useMergedInbox";
 import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUpdatePill";
@@ -179,6 +180,11 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
       search: readPullRequestListPreferences(),
     });
   }, [closeMobileSidebar, navigate]);
+  const inboxCount = useInboxActionableCount();
+  const handleInboxClick = useCallback(() => {
+    closeMobileSidebar();
+    void navigate({ to: "/inbox" });
+  }, [closeMobileSidebar, navigate]);
   const handleSettingsClick = useCallback(() => {
     closeMobileSidebar();
     void navigate({ to: "/settings" });
@@ -207,6 +213,20 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
         </SidebarMenuItem>
       ) : (
         <>
+          <SidebarUtilityItem
+            icon={
+              <span className="relative flex">
+                <InboxIcon />
+                {inboxCount > 0 ? (
+                  <Badge size="sm" className="pointer-events-none absolute -top-1.5 -right-2">
+                    {inboxCount > 99 ? "99+" : inboxCount}
+                  </Badge>
+                ) : null}
+              </span>
+            }
+            label={inboxCount > 0 ? `Inbox (${inboxCount})` : "Inbox"}
+            onClick={handleInboxClick}
+          />
           <SidebarUtilityItem
             icon={<SettingsIcon />}
             label="Settings"

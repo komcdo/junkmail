@@ -1081,6 +1081,10 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:scheduled-task:webhook-delivery",
       tag: WS_METHODS.scheduledTasksGetWebhookDelivery,
     }),
+    inboxLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:inbox:live",
+      tag: WS_METHODS.inboxSubscribe,
+    }),
     scheduledTasksLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:scheduled-tasks:live",
       tag: WS_METHODS.scheduledTasksSubscribe,
@@ -1276,6 +1280,30 @@ export function createServerEnvironmentAtoms<R, E>(
     signalProcess: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:signal-process",
       tag: WS_METHODS.serverSignalProcess,
+    }),
+    createInboxItem: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:inbox:create",
+      tag: WS_METHODS.inboxCreate,
+    }),
+    updateInboxItem: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:inbox:update",
+      tag: WS_METHODS.inboxUpdate,
+    }),
+    reorderInboxItems: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:inbox:reorder",
+      tag: WS_METHODS.inboxReorder,
+    }),
+    linkInboxThread: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:inbox:link-thread",
+      tag: WS_METHODS.inboxLinkThread,
+    }),
+    deleteInboxItem: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:inbox:delete",
+      tag: WS_METHODS.inboxDelete,
+    }),
+    startInboxThread: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:inbox:start-thread",
+      tag: WS_METHODS.inboxStartThread,
     }),
     upsertScheduledTask: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:scheduled-task:upsert",

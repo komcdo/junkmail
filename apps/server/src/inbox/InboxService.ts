@@ -40,6 +40,7 @@ interface InboxItemRow {
 
 const decodeItemJson = Schema.decodeUnknownEffect(Schema.fromJsonString(InboxItem));
 const encodeItemJson = Schema.encodeEffect(Schema.fromJsonString(InboxItem));
+const isInboxError = Schema.is(InboxError);
 
 function inboxError(message: string, input?: { itemId?: InboxItemId; cause?: unknown }) {
   return new InboxError({
@@ -259,9 +260,7 @@ export const layer = Layer.effect(
         )
         .pipe(
           Effect.mapError((cause) =>
-            Schema.is(InboxError)(cause)
-              ? cause
-              : inboxError("Could not reorder inbox items.", { cause }),
+            isInboxError(cause) ? cause : inboxError("Could not reorder inbox items.", { cause }),
           ),
           Effect.tap(() => notifyChanged),
         );
