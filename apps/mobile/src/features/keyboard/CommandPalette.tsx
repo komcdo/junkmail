@@ -238,6 +238,17 @@ export function CommandPalette(props: {
           }),
       },
       {
+        key: "inbox",
+        kind: "action",
+        title: "Inbox",
+        searchTerms: ["todo", "tasks", "work items", "triage", "snoozed"],
+        run: () =>
+          navigation.navigate("SettingsSheet", {
+            screen: "SettingsContent",
+            params: { screen: "SettingsInbox" },
+          }),
+      },
+      {
         key: "usage",
         kind: "action",
         title: "Usage",
