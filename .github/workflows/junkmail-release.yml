@@ -85,8 +85,7 @@ jobs:
           mkdir -p apps/server/dist-exe
           cat > apps/server/dist-exe/t3 <<'SH'
           #!/bin/sh
-          dir="$(cd "$(dirname "$0")" && pwd)"
-          exec "${JUNKMAIL_NODE:-node}" "$dir/bin.mjs" "$@"
+          exec "${JUNKMAIL_NODE:-node}" "${0%/*}/bin.mjs" "$@"
           SH
           chmod +x apps/server/dist-exe/t3
 
@@ -111,10 +110,31 @@ jobs:
           tar -czf "$archive" -C "$work" "$stem"
 
       - name: Smoke-test CLI archive
+        if: matrix.arch == 'arm64'
         run: >-
           node scripts/smoke-cli-archive.ts
           --archive release-cli/*
           --expect-version "${{ steps.version.outputs.version }}"
+
+      # Upstream's smoke test runs with an empty PATH, which a Node-hosted archive cannot pass.
+      - name: Smoke-test CLI archive (Intel)
+        if: matrix.arch == 'x64'
+        run: |
+          work="$RUNNER_TEMP/smoke"
+          mkdir -p "$work/home"
+          tar -xzf release-cli/*.tar.gz -C "$work"
+          cli="$(ls -d "$work"/t3-*)/t3"
+          export JUNKMAIL_NODE="$(command -v node)" T3CODE_HOME="$work/home"
+          "$cli" --version | grep -F "${{ steps.version.outputs.version }}"
+          "$cli" serve --host 127.0.0.1 --port 47731 --no-browser &
+          pid=$!
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:47731/ >/dev/null; then kill "$pid"; exit 0; fi
+            sleep 1
+          done
+          kill "$pid"
+          echo "Server did not answer within 60 seconds" >&2
+          exit 1
 
       - name: Checksum archive
         run: |
