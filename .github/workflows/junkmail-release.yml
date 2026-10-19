@@ -1,4 +1,4 @@
-# junkmail: builds the CLI archive for Apple Silicon Macs, publishes a GitHub release, and
+# junkmail: builds the CLI archive for Apple Silicon and Intel Macs, publishes a GitHub release, and
 # updates the Homebrew tap. Fork-owned; upstream's release.yml targets runners and secrets
 # this fork does not have. Triggered by pushing a `junkmail-v<version>` tag, which
 # scripts/junkmail/release.sh does.
@@ -18,8 +18,17 @@ concurrency:
 
 jobs:
   build:
-    name: Build CLI archive (macOS arm64)
-    runs-on: macos-latest
+    name: Build CLI archive (macOS ${{ matrix.arch }})
+    # Native runners per architecture: the single-executable is injected into the runner's
+    # own Node, and a cross-built binary could not be smoke-tested.
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-latest
+          - arch: x64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     steps:
       - name: Resolve version
@@ -51,9 +60,9 @@ jobs:
       - name: Build resource monitor
         run: |
           cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml
-          mkdir -p "$RUNNER_TEMP/cli-resource-monitor/darwin-arm64"
+          mkdir -p "$RUNNER_TEMP/cli-resource-monitor/darwin-${{ matrix.arch }}"
           cp native/resource-monitor/target/release/t3-resource-monitor \
-            "$RUNNER_TEMP/cli-resource-monitor/darwin-arm64/"
+            "$RUNNER_TEMP/cli-resource-monitor/darwin-${{ matrix.arch }}/"
 
       - name: Align package versions
         run: node scripts/update-release-package-versions.ts "${{ steps.version.outputs.version }}"
@@ -71,7 +80,7 @@ jobs:
         run: |
           node scripts/build-cli-archive.ts \
             --platform mac \
-            --arch arm64 \
+            --arch "${{ matrix.arch }}" \
             --version "${{ steps.version.outputs.version }}" \
             --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
             --output-dir release-cli
@@ -82,12 +91,46 @@ jobs:
           --archive release-cli/*
           --expect-version "${{ steps.version.outputs.version }}"
 
+      - name: Checksum archive
+        run: |
+          cd release-cli
+          for archive in *.tar.gz; do shasum -a 256 "$archive" > "$archive.sha256"; done
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-darwin-${{ matrix.arch }}
+          path: release-cli/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Resolve version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#junkmail-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: scripts/junkmail
+          sparse-checkout-cone-mode: true
+
+      - name: Download archives
+        uses: actions/download-artifact@v8
+        with:
+          path: release-cli
+          merge-multiple: true
+
       - name: Render Homebrew formula
         run: |
-          archive="$(ls release-cli/*.tar.gz)"
-          sha="$(shasum -a 256 "$archive" | cut -d' ' -f1)"
-          echo "$sha  $(basename "$archive")" > "$archive.sha256"
-          node scripts/junkmail/render-formula.mjs "${{ steps.version.outputs.version }}" "$sha" release-cli/junkmail.rb
+          version="${{ steps.version.outputs.version }}"
+          sha() { cut -d' ' -f1 "release-cli/t3-${version}-darwin-$1.tar.gz.sha256"; }
+          node scripts/junkmail/render-formula.mjs "$version" "$(sha arm64)" "$(sha x64)" release-cli/junkmail.rb
 
       - name: Publish release
         env:
