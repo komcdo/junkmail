@@ -15,6 +15,12 @@ if (!version || !isSha(armSha) || !isSha(intelSha)) {
 }
 
 const repo = "komcdo/junkmail";
+// Intel Macs run the server bundle on this Node (official build, so nothing compiles from source
+// on macOS versions Homebrew no longer bottles). Bump both together from nodejs.org/dist SHASUMS256.
+const intelNode = {
+  version: "24.22.0",
+  sha256: "495e3f273c645f3c4677d438304cdfc701729ea5dec5728f5c8e76a2dece4b91",
+};
 const tag = `junkmail-v${version}`;
 const download = (arch) =>
   `https://github.com/${repo}/releases/download/${tag}/t3-${version}-darwin-${arch}.tar.gz`;
@@ -36,12 +42,15 @@ class Junkmail < Formula
     url "${download("x64")}"
     sha256 "${intelSha}"
     # Intel archives carry the server bundle instead of a single executable; it runs on Node.
-    depends_on "node"
+    resource "node" do
+      url "https://nodejs.org/dist/v${intelNode.version}/node-v${intelNode.version}-darwin-x64.tar.gz"
+      sha256 "${intelNode.sha256}"
+    end
   end
 
   def server_command
     if Hardware::CPU.intel?
-      %Q["#{Formula["node"].opt_bin}/node" "#{libexec}/bin.mjs"]
+      %Q["#{libexec}/node/bin/node" "#{libexec}/bin.mjs"]
     else
       %Q["#{libexec}/t3"]
     end
@@ -49,6 +58,7 @@ class Junkmail < Formula
 
   def install
     libexec.install Dir["*"]
+    resource("node").stage { (libexec/"node").install Dir["*"] } if Hardware::CPU.intel?
     (bin/"junkmail").write <<~SH
       #!/bin/bash
       # Own data folder, so an official T3 Code install on this machine is never touched.

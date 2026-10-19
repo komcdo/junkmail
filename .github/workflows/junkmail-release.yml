@@ -78,7 +78,7 @@ jobs:
         run: node apps/server/scripts/cli.ts build-exe --verbose
 
       # The single-executable segfaults on darwin-x64 (upstream ships no Intel CLI either), so
-      # Intel archives run the same server bundle on Node; the formula supplies Homebrew's.
+      # Intel archives run the same server bundle on Node; the formula supplies an official build.
       - name: Stage Node launcher (Intel)
         if: matrix.arch == 'x64'
         run: |
