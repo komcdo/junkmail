@@ -25,14 +25,18 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 BRANCH="$(git branch --show-current)"
 git push origin "$BRANCH"
-git tag "$TAG"
+if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+  git tag "$TAG"
+fi
 git push origin "$TAG"
 
 echo "==> Waiting for the release build (about 15 minutes)"
 RUN_ID=""
 for _ in $(seq 1 30); do
-  RUN_ID="$(gh run list -R "$REPO" --workflow junkmail-release.yml --event push \
-    --json databaseId,headBranch -q ".[] | select(.headBranch == \"$TAG\") | .databaseId" | head -1)"
+  # Filter by name rather than --workflow, which only sees workflows on the default branch.
+  RUN_ID="$(gh run list -R "$REPO" --event push -L 20 --json databaseId,headBranch,workflowName \
+    -q ".[] | select(.headBranch == \"$TAG\" and .workflowName == \"junkmail release\") | .databaseId" |
+    head -1)"
   [ -n "$RUN_ID" ] && break
   sleep 5
 done
