@@ -1,0 +1,117 @@
+# junkmail: builds the CLI archive for Apple Silicon Macs, publishes a GitHub release, and
+# updates the Homebrew tap. Fork-owned; upstream's release.yml targets runners and secrets
+# this fork does not have. Triggered by pushing a `junkmail-v<version>` tag, which
+# scripts/junkmail/release.sh does.
+name: junkmail release
+
+on:
+  push:
+    tags:
+      - "junkmail-v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: junkmail-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build CLI archive (macOS arm64)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: Resolve version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#junkmail-v}" >> "$GITHUB_OUTPUT"
+
+      # The vendored .repos tree holds orphaned gitlinks that break checkout's cleanup.
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+
+      - name: Install dependencies
+        run: vp install --filter=t3... --filter=@t3tools/web... --filter=@t3tools/scripts...
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build resource monitor
+        run: |
+          cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml
+          mkdir -p "$RUNNER_TEMP/cli-resource-monitor/darwin-arm64"
+          cp native/resource-monitor/target/release/t3-resource-monitor \
+            "$RUNNER_TEMP/cli-resource-monitor/darwin-arm64/"
+
+      - name: Align package versions
+        run: node scripts/update-release-package-versions.ts "${{ steps.version.outputs.version }}"
+
+      - name: Build server and web client
+        run: vp run --filter t3 build
+
+      # Matches SEA_NODE_VERSION in apps/server/vite.config.ts, as upstream's release does.
+      - name: Build CLI single-executable
+        env:
+          VP_NODE_VERSION: "26.8.2"
+        run: node apps/server/scripts/cli.ts build-exe --verbose
+
+      - name: Build CLI archive
+        run: |
+          node scripts/build-cli-archive.ts \
+            --platform mac \
+            --arch arm64 \
+            --version "${{ steps.version.outputs.version }}" \
+            --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
+            --output-dir release-cli
+
+      - name: Smoke-test CLI archive
+        run: >-
+          node scripts/smoke-cli-archive.ts
+          --archive release-cli/*
+          --expect-version "${{ steps.version.outputs.version }}"
+
+      - name: Render Homebrew formula
+        run: |
+          archive="$(ls release-cli/*.tar.gz)"
+          sha="$(shasum -a 256 "$archive" | cut -d' ' -f1)"
+          echo "$sha  $(basename "$archive")" > "$archive.sha256"
+          node scripts/junkmail/render-formula.mjs "${{ steps.version.outputs.version }}" "$sha" release-cli/junkmail.rb
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release-cli/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "junkmail ${{ steps.version.outputs.version }}" \
+            --notes "Install: \`brew install komcdo/junkmail/junkmail\`" \
+            --target "$GITHUB_SHA"
+
+      # Optional: with a token that can push to komcdo/homebrew-junkmail, the tap updates
+      # itself. Without it, scripts/junkmail/release.sh copies junkmail.rb into the tap.
+      - name: Update Homebrew tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        if: env.TAP_TOKEN != ''
+        run: |
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/komcdo/homebrew-junkmail.git" "$RUNNER_TEMP/tap"
+          mkdir -p "$RUNNER_TEMP/tap/Formula"
+          cp release-cli/junkmail.rb "$RUNNER_TEMP/tap/Formula/junkmail.rb"
+          cd "$RUNNER_TEMP/tap"
+          git config user.name "junkmail release"
+          git config user.email "actions@users.noreply.github.com"
+          git add Formula/junkmail.rb
+          git commit -m "junkmail ${{ steps.version.outputs.version }}"
+          git push
