@@ -119,6 +119,7 @@ jobs:
       # Upstream's smoke test runs with an empty PATH, which a Node-hosted archive cannot pass.
       - name: Smoke-test CLI archive (Intel)
         if: matrix.arch == 'x64'
+        timeout-minutes: 5
         run: |
           work="$RUNNER_TEMP/smoke"
           mkdir -p "$work/home"
@@ -126,13 +127,17 @@ jobs:
           cli="$(ls -d "$work"/t3-*)/t3"
           export JUNKMAIL_NODE="$(command -v node)" T3CODE_HOME="$work/home"
           "$cli" --version | grep -F "${{ steps.version.outputs.version }}"
-          "$cli" serve --host 127.0.0.1 --port 47731 --no-browser &
+          "$cli" serve --host 127.0.0.1 --port 47731 --no-browser > "$work/server.log" 2>&1 &
           pid=$!
           for _ in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:47731/ >/dev/null; then kill "$pid"; exit 0; fi
+            if curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:47731/; then
+              kill "$pid"
+              exit 0
+            fi
             sleep 1
           done
-          kill "$pid"
+          kill "$pid" || true
+          cat "$work/server.log"
           echo "Server did not answer within 60 seconds" >&2
           exit 1
 
