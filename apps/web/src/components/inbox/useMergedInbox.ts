@@ -1,5 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { nextInboxWakeMs, type InboxEntry } from "@t3tools/client-runtime/state/inbox";
+import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { useEffect, useMemo, useState } from "react";
@@ -13,6 +14,11 @@ export interface InboxSnapshot {
   readonly errors: ReadonlyArray<string>;
   readonly loading: boolean;
 }
+
+// Servers that are not junkmail (an official T3 Code install, say) have no inbox RPCs; their
+// threads still show, so they are skipped rather than reported.
+const lacksInbox = (cause: Cause.Cause<unknown>) =>
+  String(Cause.squash(cause)).includes("Unknown request tag");
 
 /** Every connected environment's inbox, merged; each item stays owned by its environment. */
 export function useMergedInbox(): InboxSnapshot {
@@ -35,6 +41,7 @@ export function useMergedInbox(): InboxSnapshot {
               }),
             );
             if (query._tag === "Failure") {
+              if (lacksInbox(query.cause)) continue;
               errors.push(`${environment.label}: ${formatEnvironmentQueryError(query.cause)}`);
               continue;
             }

@@ -159,28 +159,52 @@ export function InboxSidebar(props: { readonly full: boolean }) {
   const visibleKeys = useMemo(() => visible.map(inboxEntryKey), [visible]);
   const sortable = MANUAL_ORDER_VIEWS.has(view) && normalizedQuery.length === 0;
 
-  const linkedThreadIds = useMemo(() => {
-    const ids = new Set<string>();
+  // Threads of open items are filed; threads of closed items reappear as unfiled once active.
+  const { openLinkedIds, allLinkedIds } = useMemo(() => {
+    const open = new Set<string>();
+    const all = new Set<string>();
     for (const { item } of entries) {
-      if (item.state === "done" || item.state === "dismissed") continue;
-      for (const threadId of item.threadIds) ids.add(threadId);
+      const closed = item.state === "done" || item.state === "dismissed";
+      for (const threadId of item.threadIds) {
+        all.add(threadId);
+        if (!closed) open.add(threadId);
+      }
     }
-    return ids;
+    return { openLinkedIds: open, allLinkedIds: all };
   }, [entries]);
-  const unfiled = useMemo(() => {
+  // Threads no item claims, shelved like the upstream sidebar: snoozed under Snoozed, settled under Done.
+  const unfiledByView = useMemo(() => {
     const nowIso = new Date(now).toISOString();
-    return filterSidebarV2VisibleThreads(shells, null)
-      .filter(
-        (shell) =>
-          shell.deletedAt === null &&
-          shell.settledOverride !== "settled" &&
-          !effectiveSnoozed(shell, { now: nowIso }) &&
-          !linkedThreadIds.has(shell.id) &&
-          (normalizedQuery.length === 0 || shell.title.toLowerCase().includes(normalizedQuery)),
-      )
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  }, [linkedThreadIds, normalizedQuery, now, shells]);
-  const showUnfiled = view === "inbox" && labelFilter === null && unfiled.length > 0;
+    const byView = { inbox: [], snoozed: [], done: [] } as Record<
+      "inbox" | "snoozed" | "done",
+      EnvironmentThreadShell[]
+    >;
+    for (const shell of filterSidebarV2VisibleThreads(shells, null)) {
+      if (shell.deletedAt !== null) continue;
+      if (normalizedQuery.length > 0 && !shell.title.toLowerCase().includes(normalizedQuery)) {
+        continue;
+      }
+      if (shell.settledOverride === "settled") {
+        if (!allLinkedIds.has(shell.id)) byView.done.push(shell);
+      } else if (effectiveSnoozed(shell, { now: nowIso })) {
+        if (!allLinkedIds.has(shell.id)) byView.snoozed.push(shell);
+      } else if (!openLinkedIds.has(shell.id)) {
+        byView.inbox.push(shell);
+      }
+    }
+    for (const list of Object.values(byView))
+      list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return byView;
+  }, [allLinkedIds, normalizedQuery, now, openLinkedIds, shells]);
+  const unfiledView = view === "inbox" || view === "snoozed" || view === "done" ? view : null;
+  const unfiled = unfiledView === null ? [] : unfiledByView[unfiledView];
+  const unfiledLabel =
+    unfiledView === "done"
+      ? "Settled threads"
+      : unfiledView === "snoozed"
+        ? "Snoozed threads"
+        : "Unfiled threads";
+  const showUnfiled = labelFilter === null && unfiled.length > 0;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -429,7 +453,7 @@ export function InboxSidebar(props: { readonly full: boolean }) {
         >
           <SidebarGroup>
             <div className="flex flex-col gap-0.5">
-              {visible.length === 0 ? (
+              {visible.length === 0 && showUnfiled ? null : visible.length === 0 ? (
                 <p className="px-2 py-6 text-center text-muted-foreground text-sm">
                   {controller.snapshot.loading
                     ? "Loading…"
@@ -531,7 +555,7 @@ export function InboxSidebar(props: { readonly full: boolean }) {
                       !unfiledCollapsed && "rotate-90",
                     )}
                   />
-                  Unfiled threads
+                  {unfiledLabel}
                   <span className="tabular-nums opacity-70">{unfiled.length}</span>
                 </button>
                 {unfiledCollapsed ? null : (
