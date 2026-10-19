@@ -63,8 +63,15 @@ class Junkmail < Formula
       #!/bin/bash
       # Own data folder, so an official T3 Code install on this machine is never touched.
       export T3CODE_HOME="\${JUNKMAIL_HOME:-$HOME/.junkmail}"
+      # Web mode otherwise turns the launch folder into a project and opens a thread there; for
+      # the service that folder is /, and a disabled default provider aborts startup.
+      export T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD="\${T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD:-false}"
       # launchd starts services with a bare PATH; agent CLIs usually live in these.
       export PATH="$HOME/.local/bin:#{HOMEBREW_PREFIX}/bin:$PATH"
+      if [ "\${1:-}" = "import-t3" ]; then
+        shift
+        exec /bin/bash "#{libexec}/import-t3.sh" "$@"
+      fi
       if [ "\${1:-}" = "open" ]; then
         url="$(#{server_command} pair --ttl 15m 2>&1 | grep -oE 'https?://[^[:space:]]+#token=[A-Za-z0-9]+' | head -1)"
         if [ -z "$url" ]; then
@@ -96,6 +103,8 @@ class Junkmail < Formula
         junkmail
 
       Data lives in ~/.junkmail (set JUNKMAIL_HOME to change it).
+      Coming from T3 Code? Bring your threads over before the first start:
+        junkmail import-t3
       Sign in to the agent CLIs you use (Claude Code, Codex) so threads can run.
     EOS
   end

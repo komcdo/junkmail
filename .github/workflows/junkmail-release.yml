@@ -98,15 +98,18 @@ jobs:
             --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
             --output-dir release-cli
 
-      - name: Add server bundle (Intel)
-        if: matrix.arch == 'x64'
+      # The formula's `junkmail import-t3` runs this script from the archive.
+      - name: Add junkmail files
         run: |
           archive="$(ls release-cli/*.tar.gz)"
           stem="$(basename "$archive" .tar.gz)"
           work="$RUNNER_TEMP/repack"
           mkdir -p "$work"
           tar -xzf "$archive" -C "$work"
-          (cd apps/server/dist && find . -maxdepth 1 -name '*.mjs' -exec cp {} "$work/$stem/" \;)
+          cp scripts/junkmail/import-t3.sh "$work/$stem/"
+          if [ "${{ matrix.arch }}" = "x64" ]; then
+            (cd apps/server/dist && find . -maxdepth 1 -name '*.mjs' -exec cp {} "$work/$stem/" \;)
+          fi
           tar -czf "$archive" -C "$work" "$stem"
 
       - name: Smoke-test CLI archive
