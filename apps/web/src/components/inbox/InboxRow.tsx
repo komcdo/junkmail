@@ -5,6 +5,7 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/model
 import type { InboxUpdateInput } from "@t3tools/contracts";
 import {
   CheckIcon,
+  ClipboardCopyIcon,
   ChevronRightIcon,
   ExternalLinkIcon,
   GripVerticalIcon,
@@ -15,7 +16,7 @@ import {
   Trash2Icon,
   XIcon,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import { resolveSidebarThreadStatus, type SidebarThreadStatus } from "../Sidebar.logic";
@@ -89,6 +90,7 @@ export interface InboxRowProps {
   readonly onOpenThread: (() => void) | null;
   readonly onLabelClick: (label: string) => void;
   readonly onDelete: () => void;
+  readonly onCopyContext: () => void;
 }
 
 export function InboxRow(props: InboxRowProps) {
@@ -154,37 +156,40 @@ export function InboxRow(props: InboxRowProps) {
             props.onToggle();
           }}
         >
-          <button
-            type="button"
-            aria-expanded={props.expanded}
-            className="flex min-w-0 items-center gap-1.5 text-left outline-hidden"
-          >
-            <ChevronRightIcon
-              className={cn(
-                "size-3 shrink-0 text-muted-foreground transition-transform",
-                props.expanded && "rotate-90",
-              )}
-            />
+          <div className="flex min-w-0 items-center gap-1.5">
+            <button
+              type="button"
+              aria-expanded={props.expanded}
+              aria-label={props.expanded ? "Collapse" : "Expand"}
+              className="flex shrink-0 outline-hidden"
+            >
+              <ChevronRightIcon
+                className={cn(
+                  "size-3 shrink-0 text-muted-foreground transition-transform",
+                  props.expanded && "rotate-90",
+                )}
+              />
+            </button>
             {!full && item.priority < 4 && !closed ? (
               <Badge variant={PRIORITY_BADGE[item.priority] ?? "outline"} size="sm">
                 P{item.priority}
               </Badge>
             ) : null}
-            <span
+            <InboxRowTitle
+              title={item.title}
+              editable={props.expanded}
               className={cn(
-                "truncate text-sm",
                 closed ? "text-muted-foreground line-through" : "text-sidebar-foreground",
                 item.unseenActivityCount > 0 && "font-semibold",
               )}
-            >
-              {item.title}
-            </span>
+              onRename={(title) => update({ title })}
+            />
             {item.unseenActivityCount > 0 ? (
               <Badge size="sm" variant="info" className="shrink-0">
                 {item.unseenActivityCount} new
               </Badge>
             ) : null}
-          </button>
+          </div>
           {meta.length > 0 || item.activityCount > 0 || labels.length > 0 ? (
             <div className="flex min-w-0 flex-wrap items-center gap-1.5 pl-4.5 text-muted-foreground text-xs">
               {labels.map((label) => (
@@ -292,6 +297,10 @@ export function InboxRow(props: InboxRowProps) {
                 {item.unseenActivityCount > 0 ? (
                   <MenuItem onClick={() => update({ markSeen: true })}>Mark as seen</MenuItem>
                 ) : null}
+                <MenuItem onClick={props.onCopyContext}>
+                  <ClipboardCopyIcon />
+                  Copy context
+                </MenuItem>
                 <MenuSeparator />
                 {item.state === "dismissed" ? (
                   <MenuItem onClick={() => update({ state: "open" })}>
@@ -316,5 +325,54 @@ export function InboxRow(props: InboxRowProps) {
       </div>
       {props.expanded ? <div className="pl-5">{props.children}</div> : null}
     </div>
+  );
+}
+
+/** Shows the title; once the item is open, clicking it edits the title in place. */
+function InboxRowTitle(props: {
+  readonly title: string;
+  readonly editable: boolean;
+  readonly className: string;
+  readonly onRename: (title: string) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  if (draft !== null && props.editable) {
+    const save = () => {
+      const title = draft.trim();
+      setDraft(null);
+      if (title.length > 0 && title !== props.title) props.onRename(title);
+    };
+    return (
+      <input
+        autoFocus
+        value={draft}
+        aria-label="Title"
+        onClick={(event) => event.stopPropagation()}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={save}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.key === "Enter") save();
+          else if (event.key === "Escape") setDraft(null);
+        }}
+        className="min-w-0 flex-1 rounded-sm bg-transparent text-sm text-sidebar-foreground outline-none ring-1 ring-ring/40 focus:ring-ring"
+      />
+    );
+  }
+  return (
+    <span
+      className={cn(
+        "truncate text-sm",
+        props.editable && "cursor-text rounded-sm hover:ring-1 hover:ring-border",
+        props.className,
+      )}
+      onClick={(event) => {
+        if (!props.editable) return;
+        event.stopPropagation();
+        setDraft(props.title);
+      }}
+    >
+      {props.title}
+    </span>
   );
 }

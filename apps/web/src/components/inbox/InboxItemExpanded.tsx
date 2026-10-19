@@ -1,7 +1,7 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { InboxEntry } from "@t3tools/client-runtime/state/inbox";
 import type { InboxActivity, InboxUpdateInput } from "@t3tools/contracts";
-import { ExternalLinkIcon } from "lucide-react";
+import { ClipboardCopyIcon, ExternalLinkIcon } from "lucide-react";
 import { useState } from "react";
 
 import { useEnvironmentQuery } from "../../state/query";
@@ -46,6 +46,7 @@ export function InboxItemExpanded(props: {
   readonly onUpdate: (input: Omit<InboxUpdateInput, "id">) => Promise<void>;
   readonly onStartThread: (projectRef: InboxProjectRef) => void;
   readonly onOpenThread: (threadRef: InboxThreadRef) => void;
+  readonly onCopyContext: () => void;
 }) {
   const { item } = props.entry;
   const project = props.projects.find((candidate) => candidate.id === item.projectId) ?? null;
@@ -55,32 +56,19 @@ export function InboxItemExpanded(props: {
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => event.stopPropagation()}
     >
-      {item.activityCount > 0 ? (
-        <InboxActivityTimeline entry={props.entry} newActivityCount={props.newActivityCount} />
-      ) : null}
-      <section className="grid gap-1">
-        <h3 className="font-medium text-muted-foreground text-xs">Labels</h3>
-        <InboxLabelEditor
-          labels={item.labels}
-          suggestions={props.labelSuggestions}
-          onChange={(labels) => void props.onUpdate({ labels })}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <StartThreadMenu
+          label="New thread with context"
+          project={project}
+          projects={props.projects}
+          onStart={props.onStartThread}
         />
-      </section>
-      <section className="grid gap-1">
-        <h3 className="flex items-center gap-2 font-medium text-muted-foreground text-xs">
-          Threads
-          <StartThreadMenu
-            project={project}
-            projects={props.projects}
-            onStart={props.onStartThread}
-          />
-        </h3>
-        {item.threadIds.length === 0 ? (
-          <p className="text-muted-foreground text-xs">
-            No thread yet. Start one to hand this to an agent with its context and activity.
-          </p>
-        ) : (
-          <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
+        <Button size="xs" variant="outline" onClick={props.onCopyContext}>
+          <ClipboardCopyIcon />
+          Copy context
+        </Button>
+        {item.threadIds.length > 0 ? (
+          <div className="ml-1 flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
             {item.threadIds.map((threadId) => (
               <InboxThreadChip
                 key={threadId}
@@ -89,11 +77,22 @@ export function InboxItemExpanded(props: {
               />
             ))}
           </div>
-        )}
-      </section>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="font-medium text-muted-foreground text-xs">Labels</span>
+        <InboxLabelEditor
+          labels={item.labels}
+          suggestions={props.labelSuggestions}
+          onChange={(labels) => void props.onUpdate({ labels })}
+        />
+      </div>
+      {item.activityCount > 0 ? (
+        <InboxActivityTimeline entry={props.entry} newActivityCount={props.newActivityCount} />
+      ) : null}
       <details className="group/edit">
         <summary className="cursor-pointer select-none font-medium text-muted-foreground text-xs hover:text-foreground">
-          Edit title, notes, branch, worktree, pull requests
+          Notes, branch, worktree, pull requests
         </summary>
         <InboxItemDetails key={item.id} entry={props.entry} onUpdate={props.onUpdate} />
       </details>

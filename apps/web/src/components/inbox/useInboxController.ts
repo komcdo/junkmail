@@ -168,6 +168,36 @@ export function useInboxController() {
     [navigate],
   );
 
+  // Threads and the clipboard get the whole conversation, not just the preview the list carries.
+  const renderContext = useCallback(
+    async (entry: InboxEntry, prompt?: string) => {
+      const { item } = entry;
+      const loaded =
+        item.activityCount === 0
+          ? null
+          : await loadActivity({ environmentId: entry.environmentId, input: { id: item.id } });
+      const activity = loaded?._tag === "Success" ? loaded.value.activity : [];
+      return renderInboxItemPrompt(item, prompt, activity);
+    },
+    [loadActivity],
+  );
+
+  const copyContext = useCallback(
+    async (entry: InboxEntry) => {
+      try {
+        await navigator.clipboard.writeText(await renderContext(entry));
+        toastManager.add({ type: "success", title: "Context copied" });
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Could not copy context",
+          description: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+    [renderContext],
+  );
+
   const startThread = useCallback(
     async (entry: InboxEntry, projectRef: InboxProjectRef) => {
       const { item } = entry;
@@ -179,18 +209,9 @@ export function useInboxController() {
         toastManager.add({ type: "error", title: "Could not open a thread" });
         return;
       }
-      // The thread gets the whole conversation, not just the preview the list carries.
-      const loaded =
-        item.activityCount === 0
-          ? null
-          : await loadActivity({ environmentId: entry.environmentId, input: { id: item.id } });
-      const activity = loaded?._tag === "Success" ? loaded.value.activity : [];
       useComposerDraftStore
         .getState()
-        .setPrompt(
-          session.draftId,
-          renderInboxItemPrompt(item, "Work on this inbox item.", activity),
-        );
+        .setPrompt(session.draftId, await renderContext(entry, "Work on this inbox item."));
       const linked = await linkThread({
         environmentId: entry.environmentId,
         input: { id: item.id, threadId: session.threadId, linked: true },
@@ -204,7 +225,7 @@ export function useInboxController() {
           : {}),
       });
     },
-    [linkThread, loadActivity, newThread, update],
+    [linkThread, newThread, renderContext, update],
   );
 
   const removeItem = useCallback(
@@ -254,6 +275,7 @@ export function useInboxController() {
     addItem,
     fileThread,
     startThread,
+    copyContext,
     openThread,
     removeItem,
     move,

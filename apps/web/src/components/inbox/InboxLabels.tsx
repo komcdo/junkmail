@@ -1,7 +1,8 @@
-import { XIcon } from "lucide-react";
+import { PlusIcon, XIcon } from "lucide-react";
 import { useId, useState, type CSSProperties } from "react";
 
 import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 
 // Hashing keeps a label's color stable everywhere without storing one per label.
@@ -80,11 +81,13 @@ export function InboxLabelEditor(props: {
   readonly suggestions: ReadonlyArray<string>;
   readonly onChange: (labels: string[]) => void;
 }) {
+  const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const listId = useId();
-  const add = () => {
+  const commit = () => {
     const label = draft.trim();
     setDraft("");
+    setAdding(false);
     if (label.length === 0) return;
     if (props.labels.some((existing) => existing.toLowerCase() === label.toLowerCase())) return;
     props.onChange([...props.labels, label]);
@@ -101,29 +104,47 @@ export function InboxLabelEditor(props: {
           onRemove={() => props.onChange(props.labels.filter((existing) => existing !== label))}
         />
       ))}
-      <form
-        className="min-w-32 flex-1"
-        onSubmit={(event) => {
-          event.preventDefault();
-          add();
-        }}
-      >
-        <Input
-          size="sm"
-          value={draft}
-          list={listId}
-          maxLength={40}
-          onChange={(event) => setDraft(event.target.value)}
-          onBlur={add}
-          placeholder={props.labels.length === 0 ? "Add a label" : "Add another"}
+      {adding ? (
+        <form
+          className="w-32"
+          onSubmit={(event) => {
+            event.preventDefault();
+            commit();
+          }}
+        >
+          <Input
+            size="compact"
+            autoFocus
+            value={draft}
+            list={listId}
+            maxLength={40}
+            onChange={(event) => setDraft(event.target.value)}
+            onBlur={commit}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setDraft("");
+                setAdding(false);
+              }
+            }}
+            placeholder="Label"
+            aria-label="New label"
+          />
+          <datalist id={listId}>
+            {remaining.map((suggestion) => (
+              <option key={suggestion} value={suggestion} />
+            ))}
+          </datalist>
+        </form>
+      ) : (
+        <Button
+          size="icon-xs"
+          variant="ghost-muted"
           aria-label="Add label"
-        />
-        <datalist id={listId}>
-          {remaining.map((suggestion) => (
-            <option key={suggestion} value={suggestion} />
-          ))}
-        </datalist>
-      </form>
+          onClick={() => setAdding(true)}
+        >
+          <PlusIcon />
+        </Button>
+      )}
     </div>
   );
 }

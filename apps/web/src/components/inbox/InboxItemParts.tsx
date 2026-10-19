@@ -92,28 +92,36 @@ export function StartThreadMenu(props: {
   readonly project: ReturnType<typeof useProjects>[number] | null;
   readonly projects: ReturnType<typeof useProjects>;
   readonly onStart: (projectRef: ReturnType<typeof scopeProjectRef>) => void;
+  /** Renders a labelled button instead of the icon, for the expanded item's action bar. */
+  readonly label?: string;
 }) {
+  const size = props.label ? "xs" : "icon-xs";
+  const variant = props.label ? "outline" : "ghost-muted";
+  const content = (
+    <>
+      <MessageSquarePlusIcon />
+      {props.label}
+    </>
+  );
   if (props.project !== null) {
     const project = props.project;
     return (
       <Button
-        size="icon-xs"
-        variant="ghost-muted"
+        size={size}
+        variant={variant}
         aria-label={`Start a thread in ${project.title}`}
         onClick={() => props.onStart(scopeProjectRef(project.environmentId, project.id))}
       >
-        <MessageSquarePlusIcon />
+        {content}
       </Button>
     );
   }
   return (
     <Menu>
-      <MenuTrigger
-        render={<Button size="icon-xs" variant="ghost-muted" aria-label="Start a thread" />}
-      >
-        <MessageSquarePlusIcon />
+      <MenuTrigger render={<Button size={size} variant={variant} aria-label="Start a thread" />}>
+        {content}
       </MenuTrigger>
-      <MenuPopup align="end">
+      <MenuPopup align="start">
         <MenuGroup>
           <MenuGroupLabel>Start a thread in</MenuGroupLabel>
           {props.projects.length === 0 ? <MenuItem disabled>No projects yet</MenuItem> : null}
@@ -184,19 +192,16 @@ export function InboxItemDetails(props: {
   readonly onUpdate: (input: Omit<InboxUpdateInput, "id">) => Promise<void>;
 }) {
   const { item } = props.entry;
-  const [title, setTitle] = useState(item.title);
   const [body, setBody] = useState(item.body ?? "");
   const [branch, setBranch] = useState(item.branch ?? "");
   const [worktreePath, setWorktreePath] = useState(item.worktreePath ?? "");
   const [pullRequests, setPullRequests] = useState(item.pullRequestUrls.join("\n"));
   const save = () => {
-    const nextTitle = title.trim();
     const nextPullRequests = pullRequests
       .split(/\s+/)
       .map((url) => url.trim())
       .filter((url) => url.length > 0);
     void props.onUpdate({
-      ...(nextTitle.length > 0 && nextTitle !== item.title ? { title: nextTitle } : {}),
       ...(body !== (item.body ?? "") ? { body: body.length > 0 ? body : null } : {}),
       ...(branch.trim() !== (item.branch ?? "") ? { branch: branch.trim() || null } : {}),
       ...(worktreePath.trim() !== (item.worktreePath ?? "")
@@ -213,12 +218,6 @@ export function InboxItemDetails(props: {
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => event.stopPropagation()}
     >
-      <Input
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        onBlur={save}
-        aria-label="Title"
-      />
       <Textarea
         value={body}
         onChange={(e) => setBody(e.target.value)}

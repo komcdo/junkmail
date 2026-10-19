@@ -487,6 +487,7 @@ export function InboxSidebar(props: { readonly full: boolean }) {
                             )
                           }
                           onDelete={() => void controller.removeItem(entry)}
+                          onCopyContext={() => void controller.copyContext(entry)}
                         >
                           {isExpanded ? (
                             <InboxItemExpanded
@@ -503,6 +504,7 @@ export function InboxSidebar(props: { readonly full: boolean }) {
                                 closeMobile();
                                 openThread(threadRef);
                               }}
+                              onCopyContext={() => void controller.copyContext(entry)}
                             />
                           ) : null}
                         </InboxRow>
