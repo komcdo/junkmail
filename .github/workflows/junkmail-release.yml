@@ -72,9 +72,23 @@ jobs:
 
       # Matches SEA_NODE_VERSION in apps/server/vite.config.ts, as upstream's release does.
       - name: Build CLI single-executable
+        if: matrix.arch == 'arm64'
         env:
           VP_NODE_VERSION: "26.8.2"
         run: node apps/server/scripts/cli.ts build-exe --verbose
+
+      # The single-executable segfaults on darwin-x64 (upstream ships no Intel CLI either), so
+      # Intel archives run the same server bundle on Node; the formula supplies Homebrew's.
+      - name: Stage Node launcher (Intel)
+        if: matrix.arch == 'x64'
+        run: |
+          mkdir -p apps/server/dist-exe
+          cat > apps/server/dist-exe/t3 <<'SH'
+          #!/bin/sh
+          dir="$(cd "$(dirname "$0")" && pwd)"
+          exec "${JUNKMAIL_NODE:-node}" "$dir/bin.mjs" "$@"
+          SH
+          chmod +x apps/server/dist-exe/t3
 
       - name: Build CLI archive
         run: |
@@ -84,6 +98,17 @@ jobs:
             --version "${{ steps.version.outputs.version }}" \
             --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
             --output-dir release-cli
+
+      - name: Add server bundle (Intel)
+        if: matrix.arch == 'x64'
+        run: |
+          archive="$(ls release-cli/*.tar.gz)"
+          stem="$(basename "$archive" .tar.gz)"
+          work="$RUNNER_TEMP/repack"
+          mkdir -p "$work"
+          tar -xzf "$archive" -C "$work"
+          (cd apps/server/dist && find . -maxdepth 1 -name '*.mjs' -exec cp {} "$work/$stem/" \;)
+          tar -czf "$archive" -C "$work" "$stem"
 
       - name: Smoke-test CLI archive
         run: >-

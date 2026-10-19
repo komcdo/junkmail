@@ -35,6 +35,16 @@ class Junkmail < Formula
   on_intel do
     url "${download("x64")}"
     sha256 "${intelSha}"
+    # Intel archives carry the server bundle instead of a single executable; it runs on Node.
+    depends_on "node"
+  end
+
+  def server_command
+    if Hardware::CPU.intel?
+      %Q["#{Formula["node"].opt_bin}/node" "#{libexec}/bin.mjs"]
+    else
+      %Q["#{libexec}/t3"]
+    end
   end
 
   def install
@@ -46,7 +56,7 @@ class Junkmail < Formula
       # launchd starts services with a bare PATH; agent CLIs usually live in these.
       export PATH="$HOME/.local/bin:#{HOMEBREW_PREFIX}/bin:$PATH"
       if [ "\${1:-}" = "open" ]; then
-        url="$("#{libexec}/t3" pair --ttl 15m 2>&1 | grep -oE 'https?://[^[:space:]]+#token=[A-Za-z0-9]+' | head -1)"
+        url="$(#{server_command} pair --ttl 15m 2>&1 | grep -oE 'https?://[^[:space:]]+#token=[A-Za-z0-9]+' | head -1)"
         if [ -z "$url" ]; then
           echo "junkmail is not running. Start it with: brew services start junkmail" >&2
           exit 1
@@ -54,7 +64,7 @@ class Junkmail < Formula
         echo "$url"
         exec open "$url"
       fi
-      exec "#{libexec}/t3" "$@"
+      exec #{server_command} "$@"
     SH
   end
 
