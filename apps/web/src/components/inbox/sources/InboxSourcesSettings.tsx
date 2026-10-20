@@ -15,6 +15,7 @@ import {
   PlayIcon,
   PlusIcon,
   SearchIcon,
+  SparklesIcon,
   TerminalIcon,
   Trash2Icon,
 } from "lucide-react";
@@ -36,6 +37,7 @@ import {
   SettingsSection,
   useRelativeTimeTick,
 } from "../../settings/settingsLayout";
+import { BuildSourceSection, useBuildSource } from "./BuildSourceSection";
 import { useInboxSources, type InboxSourceCall } from "./useInboxSources";
 
 /** A Slack app with only `search:read`, which is all the puller needs. */
@@ -216,7 +218,8 @@ export function InboxSourcesSettings() {
   const environmentId: EnvironmentId | null =
     (environment ?? connectedEnvironments[0])?.environmentId ?? null;
   const { sources, error, call, refresh } = useInboxSources(environmentId);
-  const [adding, setAdding] = useState<null | "slack" | "command">(null);
+  const [adding, setAdding] = useState<null | "slack" | "command" | "build">(null);
+  const buildSource = useBuildSource(environmentId, call);
 
   return (
     <SettingsPageContainer>
@@ -233,6 +236,13 @@ export function InboxSourcesSettings() {
               Add source
             </MenuTrigger>
             <MenuPopup align="end">
+              <MenuItem
+                disabled={buildSource.unavailableReason !== null}
+                onClick={() => setAdding("build")}
+              >
+                <SparklesIcon />
+                Build with AI
+              </MenuItem>
               <MenuItem onClick={() => setAdding("slack")}>
                 <InboxIcon />
                 Slack
@@ -254,13 +264,25 @@ export function InboxSourcesSettings() {
               </EmptyMedia>
               <EmptyTitle>No sources yet</EmptyTitle>
               <EmptyDescription>
-                Sources pull work into your inbox on a schedule. Add Slack to file your DMs and
-                mentions, or a command to file whatever a script or CLI prints.
+                Sources pull work into your inbox on a schedule. Describe what to pull and let an
+                agent build the source, add Slack to file your DMs and mentions, or add a command
+                that prints items.
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : null}
       </SettingsSection>
+      {adding === "build" ? (
+        <BuildSourceSection
+          unavailableReason={buildSource.unavailableReason}
+          build={buildSource.build}
+          onDone={() => {
+            setAdding(null);
+            void refresh();
+          }}
+          onCancel={() => setAdding(null)}
+        />
+      ) : null}
       {adding === "slack" ? (
         <SlackSourceSection
           source={null}
