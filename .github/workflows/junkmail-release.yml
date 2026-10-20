@@ -25,7 +25,8 @@ jobs:
       matrix:
         include:
           - arch: arm64
-            runner: macos-latest
+            # macos-latest runners were repeatedly unavailable; macos-15 is arm64 too.
+            runner: macos-15
           - arch: x64
             runner: macos-15-intel
     runs-on: ${{ matrix.runner }}
