@@ -16,6 +16,9 @@ if [ -s "$HOME/.nvm/nvm.sh" ]; then
   nvm use 24 >/dev/null
 fi
 export PATH="$HOME/.local/share/vite-plus/bin:$PATH"
+# Dev mode otherwise turns this checkout into a project and opens a thread with the default
+# provider, which aborts startup when imported settings disable that provider.
+export T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD="${T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD:-false}"
 
 HOME_DIR="$PWD/.t3"
 LOG="$HOME_DIR/junkmail-dev.log"

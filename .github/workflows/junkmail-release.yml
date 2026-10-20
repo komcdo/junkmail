@@ -106,7 +106,7 @@ jobs:
           work="$RUNNER_TEMP/repack"
           mkdir -p "$work"
           tar -xzf "$archive" -C "$work"
-          cp scripts/junkmail/import-t3.sh "$work/$stem/"
+          cp scripts/junkmail/import-t3.sh scripts/junkmail/read-localstorage.py "$work/$stem/"
           if [ "${{ matrix.arch }}" = "x64" ]; then
             (cd apps/server/dist && find . -maxdepth 1 -name '*.mjs' -exec cp {} "$work/$stem/" \;)
           fi

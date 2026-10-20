@@ -15,10 +15,13 @@ import type { InboxActivityInput, InboxCreateInput, InboxItemState } from "@t3to
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import { FetchHttpClient } from "effect/http";
 
+import * as ServerSecretStore from "../src/auth/ServerSecretStore.ts";
 import * as InboxService from "../src/inbox/InboxService.ts";
 import * as ThreadLaunchService from "../src/orchestration-v2/ThreadLaunchService.ts";
 import * as SqlitePersistence from "../src/persistence/Sqlite.ts";
+import * as Scheduler from "../src/scheduling/Scheduler.ts";
 
 const repoRoot = NodePath.resolve(
   NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)),
@@ -383,6 +386,10 @@ const layer = InboxService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
       Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
+      // Seeding writes items directly; no puller runs.
+      Layer.mock(Scheduler.Scheduler)({ register: () => Effect.void }),
+      Layer.mock(ServerSecretStore.ServerSecretStore)({}),
+      FetchHttpClient.layer,
       NodeCrypto.layer,
       SqlitePersistence.layerFromPath(dbPath),
     ),

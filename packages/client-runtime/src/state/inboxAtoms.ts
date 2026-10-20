@@ -53,5 +53,14 @@ export function createInboxEnvironmentAtoms<R, E>(
       label: "environment-data:server:inbox:start-thread",
       tag: WS_METHODS.inboxStartThread,
     }),
+    loadInboxClientImport: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:inbox:client-import",
+      tag: WS_METHODS.inboxClientImport,
+    }),
+    /** Every source operation; encode with `encodeInboxSourcesRequest`. */
+    inboxSources: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:inbox:sources",
+      tag: WS_METHODS.inboxSources,
+    }),
   };
 }

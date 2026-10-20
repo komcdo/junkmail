@@ -144,6 +144,10 @@ export const InboxCreateInput = Schema.Struct({
     description:
       "Events to group under the item. Re-sending one with the same key is a no-op, so a source can deliver its whole history every poll.",
   }),
+  keepTitle: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "When the origin matches an existing item, keep its title; for sources that only see the newest event, such as a Slack reply.",
+  }),
 });
 export type InboxCreateInput = typeof InboxCreateInput.Type;
 

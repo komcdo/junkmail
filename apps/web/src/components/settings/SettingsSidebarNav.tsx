@@ -11,6 +11,7 @@ import {
 } from "react";
 import {
   ArchiveIcon,
+  InboxIcon, // junkmail
   BlocksIcon,
   BotIcon,
   createLucideIcon,
@@ -89,6 +90,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/source-control": GitBranchIcon,
   "/settings/storage": HardDriveIcon,
   "/settings/connections": Link2Icon,
+  "/settings/inbox": InboxIcon, // junkmail
   "/settings/archived": ArchiveIcon,
 };
 

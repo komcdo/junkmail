@@ -9,6 +9,7 @@ import * as Schema from "effect/Schema";
 import {
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
+  AuthSettingsWriteScope,
   EnvironmentAuthorizationError,
 } from "./auth.ts";
 import {
@@ -30,6 +31,11 @@ import {
   InboxStartThreadResult,
   InboxUpdateInput,
 } from "./inbox.ts";
+import {
+  InboxClientImportResult,
+  InboxSourcesRequest,
+  InboxSourcesResponse,
+} from "./inboxSources.ts";
 
 export const INBOX_WS_METHODS = {
   inboxList: "inbox.list",
@@ -42,6 +48,8 @@ export const INBOX_WS_METHODS = {
   inboxStartThread: "inbox.startThread",
   inboxListActivity: "inbox.listActivity",
   inboxSearch: "inbox.search",
+  inboxSources: "inbox.sources",
+  inboxClientImport: "inbox.clientImport",
 } as const;
 
 const InboxRpcError = Schema.Union([InboxError, EnvironmentAuthorizationError]);
@@ -98,6 +106,16 @@ export const InboxRpcGroup = RpcGroup.make(
     success: InboxSearchResult,
     error: InboxRpcError,
   }),
+  Rpc.make(INBOX_WS_METHODS.inboxSources, {
+    payload: InboxSourcesRequest,
+    success: InboxSourcesResponse,
+    error: InboxRpcError,
+  }),
+  Rpc.make(INBOX_WS_METHODS.inboxClientImport, {
+    payload: Schema.Struct({}),
+    success: InboxClientImportResult,
+    error: InboxRpcError,
+  }),
 );
 
 /** Mutations the client checks before sending; spread into `CLIENT_GUARDED_RPC_SCOPES`. */
@@ -108,6 +126,8 @@ export const INBOX_CLIENT_GUARDED_RPC_SCOPES = {
   [INBOX_WS_METHODS.inboxLinkThread]: AuthOrchestrationOperateScope,
   [INBOX_WS_METHODS.inboxDelete]: AuthOrchestrationOperateScope,
   [INBOX_WS_METHODS.inboxStartThread]: AuthOrchestrationOperateScope,
+  // Sources hold tokens, so even listing them is a settings operation.
+  [INBOX_WS_METHODS.inboxSources]: AuthSettingsWriteScope,
 } as const;
 
 /** Reads the server authorizes; spread into `RPC_REQUIRED_SCOPES` with the guarded scopes. */
@@ -116,6 +136,7 @@ export const INBOX_READ_RPC_SCOPES = {
   [INBOX_WS_METHODS.inboxSubscribe]: AuthOrchestrationReadScope,
   [INBOX_WS_METHODS.inboxListActivity]: AuthOrchestrationReadScope,
   [INBOX_WS_METHODS.inboxSearch]: AuthOrchestrationReadScope,
+  [INBOX_WS_METHODS.inboxClientImport]: AuthOrchestrationReadScope,
 } as const;
 
 /** Span aggregate for every inbox method; spread into the server's `RPC_AGGREGATES`. */

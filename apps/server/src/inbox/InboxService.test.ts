@@ -3,10 +3,14 @@ import { assert, it } from "@effect/vitest";
 import { CommandId, ProjectId, ThreadId, type InboxItemId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import { FetchHttpClient } from "effect/http";
 
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as InboxService from "./InboxService.ts";
 
 const makeLayer = (launched: Ref.Ref<ReadonlyArray<string>>) =>
@@ -21,6 +25,12 @@ const makeLayer = (launched: Ref.Ref<ReadonlyArray<string>>) =>
               } as ThreadLaunchService.ThreadLaunchResult),
             ),
         }),
+        // No sources exist in these tests, so pullers never schedule, read secrets, or fetch.
+        Layer.mock(Scheduler.Scheduler)({ register: () => Effect.void }),
+        Layer.mock(ServerSecretStore.ServerSecretStore)({
+          get: () => Effect.succeed(Option.none()),
+        }),
+        FetchHttpClient.layer,
         NodeCrypto.layer,
         SqlitePersistence.layerMemory,
       ),

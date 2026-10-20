@@ -51,6 +51,40 @@ const Migration0002 = Effect.gen(function* () {
   `;
 });
 
+// Configured pullers. Tokens live in the secret store, keyed by source id, never in this table.
+const Migration0003 = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql`
+    CREATE TABLE IF NOT EXISTS inbox_sources (
+      source_id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      name TEXT NOT NULL,
+      enabled INTEGER NOT NULL,
+      settings_json TEXT NOT NULL,
+      cursor_json TEXT,
+      account_json TEXT,
+      status TEXT NOT NULL,
+      last_error TEXT,
+      last_run_at TEXT,
+      last_success_at TEXT,
+      next_run_at TEXT,
+      last_run_item_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    )
+  `;
+});
+
+// `junkmail import-t3` also creates this when it stages settings into a copied database.
+const Migration0004 = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql`
+    CREATE TABLE IF NOT EXISTS junkmail_client_import (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      json TEXT NOT NULL
+    )
+  `;
+});
+
 const run = Migrator.make({});
 
 export const runInboxMigrations = Effect.fn("runInboxMigrations")(function* () {
@@ -59,6 +93,8 @@ export const runInboxMigrations = Effect.fn("runInboxMigrations")(function* () {
     loader: Migrator.fromRecord({
       "1_InboxItems": Migration0001,
       "2_InboxActivity": Migration0002,
+      "3_InboxSources": Migration0003,
+      "4_ClientImport": Migration0004,
     }),
   });
   if (executed.length > 0) {

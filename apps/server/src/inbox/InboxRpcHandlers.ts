@@ -30,4 +30,6 @@ export const makeInboxRpcHandlers = (inbox: Inbox.InboxService["Service"]) => ({
       Effect.andThen(inbox.listActivity(input)),
     ),
   [INBOX_WS_METHODS.inboxSearch]: inbox.search,
+  [INBOX_WS_METHODS.inboxSources]: inbox.sources,
+  [INBOX_WS_METHODS.inboxClientImport]: (_input: unknown) => inbox.clientImport(),
 });

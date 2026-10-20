@@ -5,6 +5,7 @@ import { useEnvironments } from "../../state/environments";
 import { useSidebar } from "../ui/sidebar";
 import { InboxSidebar } from "./InboxSidebar";
 import { usePrimarySidebarMode } from "./sidebarMode";
+import { useClientImport } from "./useClientImport";
 
 // Overrides the width variable below the provider's inline value, so upstream's persisted
 // sidebar width is untouched and returns the moment an item opens. Mounted only while full.
@@ -18,6 +19,7 @@ const FULL_WIDTH_CSS = `
 export function PrimarySidebar(props: { readonly threads: ReactNode }) {
   const [mode] = usePrimarySidebarMode();
   const { isMobile, open } = useSidebar();
+  useClientImport();
   // The inbox is the page at /inbox; it shares the window only while a thread is open.
   const onInbox = useLocation({ select: (location) => location.pathname === "/inbox" });
   if (mode === "threads") return props.threads;

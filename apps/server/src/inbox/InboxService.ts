@@ -25,6 +25,9 @@ import {
   type InboxReorderResult,
   type InboxStartThreadInput,
   type InboxStartThreadResult,
+  type InboxClientImportResult,
+  type InboxSourcesRequest,
+  type InboxSourcesResponse,
   type InboxUpdateInput,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -38,6 +41,7 @@ import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
+import * as InboxSources from "./InboxSourceService.ts";
 
 /** Closed items older than this drop out of the live list; they stay in the table. */
 const CLOSED_ITEM_RETENTION_DAYS = 14;
@@ -117,6 +121,16 @@ export class InboxService extends Context.Service<
       input: InboxListActivityInput,
     ) => Effect.Effect<InboxListActivityResult, InboxError>;
     readonly search: (input: InboxSearchInput) => Effect.Effect<InboxSearchResult, InboxError>;
+    /**
+     * Configured pullers, behind the one `inbox.sources` RPC. Typed by its flat request and
+     * response rather than the operations: the richer types push the server's merged layer
+     * types past the compiler's instantiation limit.
+     */
+    readonly sources: (
+      request: InboxSourcesRequest,
+    ) => Effect.Effect<InboxSourcesResponse, InboxError>;
+    /** The browser-side settings `junkmail import-t3` staged, if any. */
+    readonly clientImport: () => Effect.Effect<InboxClientImportResult, InboxError>;
   }
 >()("t3/inbox/InboxService") {}
 
@@ -253,7 +267,7 @@ export const layer = Layer.effect(
                 const woken = added.length > 0;
                 const refreshed: InboxItem = {
                   ...existing,
-                  title: input.title,
+                  title: input.keepTitle === true ? existing.title : input.title,
                   ...(input.body === undefined ? {} : { body: input.body }),
                   origin: { ...existing.origin, url: input.url ?? existing.origin.url },
                   labels: normalizeInboxLabels([...existing.labels, ...inputLabels]),
@@ -452,7 +466,18 @@ export const layer = Layer.effect(
         return { item: linked, threadId };
       });
 
+    const sources = InboxSources.dispatch(yield* InboxSources.make({ create }));
+
+    // `junkmail import-t3` writes this row into the database it copies.
+    const clientImport = () =>
+      sql<{ readonly json: string }>`SELECT json FROM junkmail_client_import WHERE id = 1`.pipe(
+        Effect.map((rows) => ({ json: rows[0]?.json ?? null })),
+        Effect.mapError((cause) => inboxError("Could not read the imported settings.", { cause })),
+      );
+
     return InboxService.of({
+      sources,
+      clientImport,
       list,
       subscribeList,
       get,
