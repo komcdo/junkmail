@@ -2,13 +2,15 @@
 # junkmail: bring threads, attachments and settings over from an official T3 Code install.
 #
 #   junkmail import-t3                     (Homebrew install; imports into ~/.junkmail)
+#   junkmail import-t3 --connections       only the remote connections; nothing is replaced
 #   T3CODE_HOME=<dir> scripts/junkmail/import-t3.sh [--from <t3 home>] [--app-data <dir>]
 #
 # Brings over threads, attachments, server settings (providers, models, environment theme),
 # keybindings and custom themes from the official install (default ~/.t3), plus the desktop
-# app's browser-side state: selected theme, custom themes, appearance, UI layout and drafts.
-# That state lives in the app's localStorage, which a browser on junkmail's own address cannot
-# see, so it is staged in junkmail-client-import.json and each browser applies it once.
+# app's browser-side state: selected theme, custom themes, appearance, UI layout and drafts,
+# and its saved remote connections. That state lives in the app's localStorage and encrypted
+# connection catalog, which a browser on junkmail's own address cannot see, so it is staged
+# in junkmail-client-import.json and each browser applies it once.
 #
 # Nothing in the official install is modified: the database is copied with SQLite's online
 # backup in read-only mode, so T3 Code can stay open. junkmail must be stopped. Whatever
@@ -16,6 +18,7 @@
 set -euo pipefail
 
 FROM="$HOME/.t3"
+CONNECTIONS_ONLY=0
 # The desktop app's Electron profile, where its localStorage lives.
 if [ "$(uname)" = "Darwin" ]; then
   APP_DATA="$HOME/Library/Application Support/t3code"
@@ -27,6 +30,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --from) FROM="${2:?--from needs a folder}"; shift 2 ;;
     --app-data) APP_DATA="${2:?--app-data needs a folder}"; shift 2 ;;
+    --connections) CONNECTIONS_ONLY=1; shift ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -37,6 +41,41 @@ if [ "$(cd "$SRC" 2>/dev/null && pwd -P)" = "$(mkdir -p "$DEST" && cd "$DEST" &&
   echo "The source and junkmail data folders are the same: $DEST" >&2
   exit 1
 fi
+# Stages the browser-side state and stores it in the database at $1, where the server reads it.
+stage_client_import() {
+  sqlite3 "$1" "
+    CREATE TABLE IF NOT EXISTS junkmail_client_import (
+      id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL);
+    INSERT OR REPLACE INTO junkmail_client_import (id, json)
+      VALUES (1, CAST(readfile('$DEST/junkmail-client-import.json') AS TEXT));"
+}
+
+if [ -f "$SRC/connection-catalog.json" ] && [ "$(uname)" = "Darwin" ]; then
+  KEYCHAIN_NOTE="    macOS asks to let \"security\" read \"t3code Safe Storage\"; Allow lets"
+  KEYCHAIN_NOTE="$KEYCHAIN_NOTE junkmail decrypt the saved connections."
+else
+  KEYCHAIN_NOTE=""
+fi
+
+# Only the connections: the running junkmail keeps its threads, inbox and settings.
+if [ "$CONNECTIONS_ONLY" = "1" ]; then
+  if [ ! -f "$DEST/statev2.sqlite" ]; then
+    echo "junkmail has no database yet in $DEST. Start it once, then run this again." >&2
+    exit 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "Importing connections needs python3." >&2
+    exit 1
+  fi
+  echo "==> Reading the desktop app's saved remote connections"
+  [ -n "$KEYCHAIN_NOTE" ] && echo "$KEYCHAIN_NOTE"
+  python3 "$HERE/read-localstorage.py" --stage-connections "$SRC" "$DEST"
+  stage_client_import "$DEST/statev2.sqlite"
+  echo
+  echo "Reload junkmail in your browser; the connections appear under Settings > Connections."
+  exit 0
+fi
+
 # A V2 install already has statev2.sqlite; older ones have state.sqlite, which junkmail
 # upgrades itself on first start.
 if [ -f "$SRC/statev2.sqlite" ]; then
@@ -81,17 +120,15 @@ fi
 LEVELDB="$APP_DATA/Local Storage/leveldb"
 if ! command -v python3 >/dev/null 2>&1; then
   echo "==> Skipping theme and layout: python3 is not installed"
-elif [ ! -d "$LEVELDB" ] && [ ! -f "$SRC/client-settings.json" ]; then
+elif [ ! -d "$LEVELDB" ] && [ ! -f "$SRC/client-settings.json" ] \
+  && [ ! -f "$SRC/connection-catalog.json" ]; then
   echo "==> No desktop app state found at $APP_DATA; theme and layout stay default"
 else
-  echo "==> Staging theme, appearance and layout for the browser"
+  echo "==> Staging theme, appearance, layout and remote connections for the browser"
+  [ -n "$KEYCHAIN_NOTE" ] && echo "$KEYCHAIN_NOTE"
   python3 "$HERE/read-localstorage.py" --stage "$LEVELDB" "$SRC" "$DEST"
   # The server reads it from the database, which it carries into statev2.sqlite on first start.
-  sqlite3 "$DEST/$DB" "
-    CREATE TABLE IF NOT EXISTS junkmail_client_import (
-      id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL);
-    INSERT OR REPLACE INTO junkmail_client_import (id, json)
-      VALUES (1, CAST(readfile('$DEST/junkmail-client-import.json') AS TEXT));"
+  stage_client_import "$DEST/$DB"
 fi
 
 echo

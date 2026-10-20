@@ -4,17 +4,26 @@
     read-localstorage.py "<app data dir>/Local Storage/leveldb" [key-prefix ...]   print as JSON
     read-localstorage.py --stage <leveldb dir> <t3 userdata> <junkmail userdata>
         write junkmail-client-import.json, which junkmail's browsers apply once
+    read-localstorage.py --stage-connections <t3 userdata> <junkmail userdata>
+        the same, with only the remote connections
+
+The staged file also carries the desktop app's saved remote connections, which it keeps
+encrypted with Electron's safeStorage; on macOS the key is read from the Keychain.
 
 T3 Code's desktop app keeps its themes and UI state in Electron's localStorage, a LevelDB
 database. This reads it without opening it for writing, using only the standard library:
 table files (.ldb, Snappy-compressed blocks) and the write-ahead log (.log). The newest
 write of each key wins, by LevelDB sequence number, so deleted keys stay deleted.
 """
+import ctypes
+import ctypes.util
 import datetime
 import glob
+import hashlib
 import json
 import os
 import struct
+import subprocess
 import sys
 
 
@@ -177,11 +186,80 @@ def read_environment_id(folder):
     return open(path).read().strip() if os.path.isfile(path) else ""
 
 
+def safe_storage_key(blob):
+    """The AES key Electron's safeStorage used for `blob`, as Chromium derives it."""
+    password = os.environ.get("JUNKMAIL_SAFE_STORAGE_PASSWORD")
+    if password is None and sys.platform == "darwin":
+        # macOS asks once whether `security` may read the item; "Allow" is enough.
+        password = subprocess.run(
+            ["security", "find-generic-password", "-w", "-s", "t3code Safe Storage"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+    if sys.platform == "darwin" or password is not None:
+        return hashlib.pbkdf2_hmac("sha1", password.encode(), b"saltysalt", 1003, 16)
+    if blob.startswith(b"v10"):  # Linux without a keyring: a fixed, public password.
+        return hashlib.pbkdf2_hmac("sha1", b"peanuts", b"saltysalt", 1, 16)
+    raise RuntimeError("the desktop app encrypted it with the system keyring")
+
+
+def aes_128_cbc_decrypt(key, data):
+    iv = b" " * 16
+    if sys.platform == "darwin":
+        # CommonCrypto, so the key never appears in a command line.
+        lib = ctypes.CDLL(ctypes.util.find_library("System"))
+        out = ctypes.create_string_buffer(len(data) + 16)
+        moved = ctypes.c_size_t(0)
+        status = lib.CCCrypt(1, 0, 1, key, len(key), iv, data, ctypes.c_size_t(len(data)),
+                             out, ctypes.c_size_t(len(out)), ctypes.byref(moved))
+        if status != 0:
+            raise RuntimeError(f"decryption failed ({status})")
+        return out.raw[: moved.value]
+    return subprocess.run(
+        ["openssl", "enc", "-d", "-aes-128-cbc", "-K", key.hex(), "-iv", iv.hex()],
+        input=data, capture_output=True, check=True,
+    ).stdout
+
+
+def read_connection_catalog(source):
+    """The desktop app's saved remote connections, reduced to the ones a browser can use.
+
+    Bearer connections carry their own token. Relay connections only name the environment;
+    the browser signs in to T3 Connect itself, since relay tokens are bound to the device
+    that minted them. SSH tunnels need the desktop app, so they are left behind.
+    """
+    path = os.path.join(source, "connection-catalog.json")
+    if not os.path.isfile(path):
+        return None, 0
+    import base64
+
+    blob = base64.b64decode(json.load(open(path))["encryptedCatalog"])
+    catalog = json.loads(aes_128_cbc_decrypt(safe_storage_key(blob), blob[3:]))
+    targets = [t for t in catalog.get("targets", []) if t.get("_tag") != "SshConnectionTarget"]
+    connection_ids = {t["connectionId"] for t in targets if "connectionId" in t}
+    kept = {
+        "schemaVersion": 1,
+        "targets": targets,
+        "profiles": [
+            p for p in catalog.get("profiles", [])
+            if p.get("_tag") == "BearerConnectionProfile" and p.get("connectionId") in connection_ids
+        ],
+        "credentials": [
+            c for c in catalog.get("credentials", []) if c.get("connectionId") in connection_ids
+        ],
+        "remoteDpopTokens": [],
+        "disabledEnvironmentIds": [
+            e for e in catalog.get("disabledEnvironmentIds", [])
+            if any(t["environmentId"] == e for t in targets)
+        ],
+    }
+    return kept, len(catalog.get("targets", [])) - len(targets)
+
+
 def stage(leveldb, source, destination):
-    entries = read_entries(leveldb, ["t3code:"]) if os.path.isdir(leveldb) else {}
+    entries = read_entries(leveldb, ["t3code:"]) if leveldb and os.path.isdir(leveldb) else {}
     # The desktop app keeps client settings in a file; browsers keep them under this key.
     settings = os.path.join(source, "client-settings.json")
-    if os.path.isfile(settings):
+    if leveldb and os.path.isfile(settings):
         entries["t3code:client-settings:v1"] = open(settings).read()
     # Per-thread state is keyed by environment id; junkmail has its own.
     old_id, new_id = read_environment_id(source), read_environment_id(destination)
@@ -191,15 +269,37 @@ def stage(leveldb, source, destination):
         "importedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "entries": entries,
     }
-    with open(os.path.join(destination, "junkmail-client-import.json"), "w") as out:
+    try:
+        catalog, skipped = read_connection_catalog(source)
+    except subprocess.CalledProcessError:
+        catalog, skipped = None, 0
+        print("    Skipped remote connections: Keychain access was not allowed", file=sys.stderr)
+    except Exception as error:
+        catalog, skipped = None, 0
+        print(f"    Skipped remote connections: could not decrypt them ({error})", file=sys.stderr)
+    if catalog is not None:
+        staged["connectionCatalog"] = json.dumps(catalog)
+    # Connection tokens are secrets; only this user may read the staged copy.
+    path = os.path.join(destination, "junkmail-client-import.json")
+    with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as out:
         json.dump(staged, out, ensure_ascii=False)
+    os.chmod(path, 0o600)
     theme = entries.get("t3code:theme")
-    print(f"    {len(entries)} settings" + (f", theme {theme}" if theme else ""))
+    if leveldb:
+        print(f"    {len(entries)} settings" + (f", theme {theme}" if theme else ""))
+    if catalog is None and not leveldb:
+        print("    No saved remote connections found")
+    if catalog is not None:
+        print(f"    {len(catalog['targets'])} remote connections"
+              + (f"; {skipped} over SSH need the desktop app" if skipped else ""))
 
 
 def main():
     if sys.argv[1] == "--stage":
         stage(*sys.argv[2:5])
+        return
+    if sys.argv[1] == "--stage-connections":
+        stage(None, *sys.argv[2:4])
         return
     json.dump(read_entries(sys.argv[1], sys.argv[2:] or ["t3code:"]), sys.stdout, ensure_ascii=False)
 

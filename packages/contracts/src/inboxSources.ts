@@ -208,7 +208,8 @@ export function decodeInboxSourcesResponse<Op extends InboxSourceOperation>(
 
 /**
  * Browser-side settings `junkmail import-t3` staged from the official desktop app: localStorage
- * entries (theme, custom themes, layout), applied once per browser. Null when nothing is staged.
+ * entries (theme, custom themes, layout) and saved remote connections, applied once per
+ * browser. Null when nothing is staged.
  */
 export const InboxClientImportResult = Schema.Struct({ json: Schema.NullOr(Schema.String) });
 export type InboxClientImportResult = typeof InboxClientImportResult.Type;
@@ -216,5 +217,7 @@ export type InboxClientImportResult = typeof InboxClientImportResult.Type;
 export const InboxClientImport = Schema.Struct({
   importedAt: Schema.String,
   entries: Schema.Record(Schema.String, Schema.String),
+  /** The desktop app's connection catalog, decrypted, in the browser catalog's JSON format. */
+  connectionCatalog: Schema.optional(Schema.String),
 });
 export type InboxClientImport = typeof InboxClientImport.Type;

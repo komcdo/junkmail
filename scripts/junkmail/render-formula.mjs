@@ -105,6 +105,8 @@ class Junkmail < Formula
       Data lives in ~/.junkmail (set JUNKMAIL_HOME to change it).
       Coming from T3 Code? Bring your threads over before the first start:
         junkmail import-t3
+      Already started? Bring over just the saved remote connections:
+        junkmail import-t3 --connections
       Sign in to the agent CLIs you use (Claude Code, Codex) so threads can run.
     EOS
   end

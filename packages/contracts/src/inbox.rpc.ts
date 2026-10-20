@@ -128,6 +128,8 @@ export const INBOX_CLIENT_GUARDED_RPC_SCOPES = {
   [INBOX_WS_METHODS.inboxStartThread]: AuthOrchestrationOperateScope,
   // Sources hold tokens, so even listing them is a settings operation.
   [INBOX_WS_METHODS.inboxSources]: AuthSettingsWriteScope,
+  // The staged import carries the tokens of the desktop app's remote connections.
+  [INBOX_WS_METHODS.inboxClientImport]: AuthSettingsWriteScope,
 } as const;
 
 /** Reads the server authorizes; spread into `RPC_REQUIRED_SCOPES` with the guarded scopes. */
@@ -136,7 +138,6 @@ export const INBOX_READ_RPC_SCOPES = {
   [INBOX_WS_METHODS.inboxSubscribe]: AuthOrchestrationReadScope,
   [INBOX_WS_METHODS.inboxListActivity]: AuthOrchestrationReadScope,
   [INBOX_WS_METHODS.inboxSearch]: AuthOrchestrationReadScope,
-  [INBOX_WS_METHODS.inboxClientImport]: AuthOrchestrationReadScope,
 } as const;
 
 /** Span aggregate for every inbox method; spread into the server's `RPC_AGGREGATES`. */
