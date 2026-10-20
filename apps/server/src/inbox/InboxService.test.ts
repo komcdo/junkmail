@@ -10,6 +10,7 @@ import { FetchHttpClient } from "effect/http";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as InboxService from "./InboxService.ts";
 
@@ -26,6 +27,7 @@ const makeLayer = (launched: Ref.Ref<ReadonlyArray<string>>) =>
             ),
         }),
         // No sources exist in these tests, so pullers never schedule, read secrets, or fetch.
+        Layer.mock(ProcessRunner.ProcessRunner)({}),
         Layer.mock(Scheduler.Scheduler)({ register: () => Effect.void }),
         Layer.mock(ServerSecretStore.ServerSecretStore)({
           get: () => Effect.succeed(Option.none()),

@@ -3,11 +3,15 @@
  * scheduler and files what it finds with `InboxService.create`, the same path the UI and MCP use.
  */
 import {
+  CommandSourceSettings,
   INBOX_SOURCE_OPERATIONS,
   InboxSource,
+  isCommandSourceSettings,
   InboxError,
   InboxSourceId,
   StoredSlackSourceSettings,
+  type InboxCreateInput,
+  type InboxSourceSettings,
   type InboxSourceIdInput,
   type InboxSourceListResult,
   type InboxSourcePreviewResult,
@@ -28,8 +32,10 @@ import * as SqlClient from "effect/sql/SqlClient";
 import { HttpClient } from "effect/http";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import type * as InboxService from "./InboxService.ts";
+import { parseCommandOutput, runSourceCommand } from "./sources/command.ts";
 import { SlackApiError, SlackCursor, pullSlack, slackAuthTest } from "./sources/slack.ts";
 
 interface SourceRow {
@@ -48,8 +54,37 @@ interface SourceRow {
   readonly last_run_item_count: number;
 }
 
-const decodeSettings = Schema.decodeUnknownEffect(Schema.fromJsonString(StoredSlackSourceSettings));
-const encodeSettings = Schema.encodeEffect(Schema.fromJsonString(StoredSlackSourceSettings));
+const decodeSlackSettings = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(StoredSlackSourceSettings),
+);
+const encodeSlackSettings = Schema.encodeUnknownEffect(
+  Schema.fromJsonString(StoredSlackSourceSettings),
+);
+const decodeCommandSettings = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(CommandSourceSettings),
+);
+const encodeCommandSettings = Schema.encodeUnknownEffect(
+  Schema.fromJsonString(CommandSourceSettings),
+);
+const decodeSettings = (
+  kind: string,
+  json: string,
+): Effect.Effect<InboxSourceSettings, Schema.SchemaError> =>
+  kind === "command" ? decodeCommandSettings(json) : decodeSlackSettings(json);
+const encodeSettings = (
+  kind: string,
+  settings: InboxSourceSettings,
+): Effect.Effect<string, Schema.SchemaError> =>
+  kind === "command" ? encodeCommandSettings(settings) : encodeSlackSettings(settings);
+
+/** What one pull found, whichever puller ran. */
+interface PullOutcome {
+  readonly items: ReadonlyArray<InboxCreateInput & { readonly watch: string }>;
+  readonly filteredCount: number;
+  readonly warning: string | null;
+  readonly cursor?: SlackCursor;
+  readonly account?: { readonly team: string; readonly user: string };
+}
 const decodeSource = Schema.decodeUnknownEffect(InboxSource);
 const SourceAccount = Schema.Struct({ team: Schema.String, user: Schema.String });
 type SourceAccount = typeof SourceAccount.Type;
@@ -103,6 +138,7 @@ export const make = (inbox: Pick<InboxService.InboxService["Service"], "create">
     const crypto = yield* Crypto.Crypto;
     const secrets = yield* ServerSecretStore.ServerSecretStore;
     const httpClient = yield* HttpClient.HttpClient;
+    const processRunner = yield* ProcessRunner.ProcessRunner;
     // One pull at a time: runs are short, and it keeps the scheduler and "Run now" from racing
     // on the same cursor.
     const runLock = yield* Semaphore.make(1);
@@ -117,7 +153,7 @@ export const make = (inbox: Pick<InboxService.InboxService["Service"], "create">
 
     const toSource = (row: SourceRow) =>
       Effect.gen(function* () {
-        const settings = yield* decodeSettings(row.settings_json);
+        const settings = yield* decodeSettings(row.kind, row.settings_json);
         const id = InboxSourceId.make(row.source_id);
         const token = yield* readToken(id);
         return yield* decodeSource({
@@ -186,33 +222,58 @@ export const make = (inbox: Pick<InboxService.InboxService["Service"], "create">
         ),
       );
 
-    const pull = (row: SourceRow, token: string) =>
-      decodeSettings(row.settings_json).pipe(
-        Effect.mapError((cause) => sourceError("The source settings are invalid.", { cause })),
-        Effect.flatMap((settings) =>
-          pullSlack({ token, settings, cursor: readCursor(row.cursor_json) }),
-        ),
-        Effect.provideService(HttpClient.HttpClient, httpClient),
-      );
+    const pull = (row: SourceRow) =>
+      Effect.gen(function* () {
+        const id = InboxSourceId.make(row.source_id);
+        const settings = yield* decodeSettings(row.kind, row.settings_json).pipe(
+          Effect.mapError((cause) => sourceError("The source settings are invalid.", { cause })),
+        );
+        if (isCommandSourceSettings(settings)) {
+          const stdout = yield* runSourceCommand(processRunner, {
+            command: settings.command,
+            timeoutSeconds: settings.timeoutSeconds,
+            // Lets a script fetch only what is new since its last good run.
+            env: {
+              JUNKMAIL_SOURCE_ID: id,
+              JUNKMAIL_LAST_SUCCESS_AT: row.last_success_at ?? "",
+            },
+          });
+          const parsed = parseCommandOutput({ stdout, sourceId: id, settings });
+          const outcome: PullOutcome = {
+            items: parsed.items,
+            filteredCount: parsed.invalidCount,
+            warning: parsed.warning,
+          };
+          return outcome;
+        }
+        const token = yield* readToken(id);
+        if (Option.isNone(token)) {
+          return yield* new SlackApiError({ code: "not_authed", retryAfterSec: null });
+        }
+        const slack = yield* pullSlack({
+          token: token.value,
+          settings,
+          cursor: readCursor(row.cursor_json),
+        }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient));
+        const outcome: PullOutcome = {
+          items: slack.items,
+          filteredCount: slack.filteredCount,
+          warning: null,
+          cursor: slack.cursor,
+          account: { team: slack.account.team, user: slack.account.user },
+        };
+        return outcome;
+      });
 
     const runSource = (id: InboxSourceId) =>
       runLock.withPermits(1)(
         Effect.gen(function* () {
           const row = yield* findRow(id);
-          const token = yield* readToken(id);
-          if (Option.isNone(token)) {
-            yield* recordRun(id, {
-              status: "auth_required",
-              error: "Paste a Slack token to start pulling.",
-              nextRunAt: null,
-            });
-            return;
-          }
-          const settings = yield* decodeSettings(row.settings_json).pipe(
+          const settings = yield* decodeSettings(row.kind, row.settings_json).pipe(
             Effect.mapError((cause) => sourceError("The source settings are invalid.", { cause })),
           );
           const intervalMs = settings.intervalMinutes * 60_000;
-          const result = yield* pull(row, token.value).pipe(
+          const result = yield* pull(row).pipe(
             Effect.map((value) => ({ ok: true as const, value })),
             Effect.catch((cause) => Effect.succeed({ ok: false as const, cause })),
           );
@@ -242,7 +303,7 @@ export const make = (inbox: Pick<InboxService.InboxService["Service"], "create">
               .create(item)
               .pipe(
                 Effect.mapError((cause) =>
-                  sourceError("Could not file a Slack item.", { sourceId: id, cause }),
+                  sourceError("Could not file an item.", { sourceId: id, cause }),
                 ),
               );
             if (filed.created === true || (filed.addedActivity ?? 0) > 0) itemCount++;
@@ -251,10 +312,11 @@ export const make = (inbox: Pick<InboxService.InboxService["Service"], "create">
           // re-filing is a no-op because activity keys dedupe.
           yield* recordRun(id, {
             status: "idle",
-            error: null,
+            // A run that skipped invalid output still succeeds, but says why.
+            error: result.value.warning,
             nextRunAt: yield* isoAfter(intervalMs),
-            cursor: result.value.cursor,
-            account: { team: result.value.account.team, user: result.value.account.user },
+            ...(result.value.cursor === undefined ? {} : { cursor: result.value.cursor }),
+            ...(result.value.account === undefined ? {} : { account: result.value.account }),
             itemCount,
           });
         }),
@@ -275,7 +337,7 @@ export const make = (inbox: Pick<InboxService.InboxService["Service"], "create">
           input.id ??
           InboxSourceId.make(`${input.kind}-${(yield* crypto.randomUUIDv4()).slice(0, 8)}`);
         let account: SourceAccount | null = null;
-        if (input.token !== undefined) {
+        if (input.token !== undefined && input.kind === "slack") {
           // Check the token before saving it, so a typo fails here rather than on the next run.
           const checked = yield* slackAuthTest(input.token).pipe(
             Effect.provideService(HttpClient.HttpClient, httpClient),
@@ -284,7 +346,10 @@ export const make = (inbox: Pick<InboxService.InboxService["Service"], "create">
           account = { team: checked.team, user: checked.user };
           yield* secrets.set(secretName(id), new TextEncoder().encode(input.token));
         }
-        const settingsJson = yield* encodeSettings(input.settings);
+        if (isCommandSourceSettings(input.settings) !== (input.kind === "command")) {
+          return yield* sourceError("The settings do not match the source kind.");
+        }
+        const settingsJson = yield* encodeSettings(input.kind, input.settings);
         const now = yield* nowIso;
         const enabled = input.enabled ? 1 : 0;
         // Saving reschedules: an enabled source runs on the next scheduler tick.
@@ -332,11 +397,7 @@ export const make = (inbox: Pick<InboxService.InboxService["Service"], "create">
     const preview: InboxSources["preview"] = (input) =>
       Effect.gen(function* () {
         const row = yield* findRow(input.id);
-        const token = yield* readToken(input.id);
-        if (Option.isNone(token)) {
-          return yield* sourceError("Paste a Slack token first.", { sourceId: input.id });
-        }
-        const result = yield* pull(row, token.value).pipe(
+        const result = yield* pull(row).pipe(
           Effect.mapError((cause) =>
             isSourceError(cause)
               ? cause
@@ -346,6 +407,7 @@ export const make = (inbox: Pick<InboxService.InboxService["Service"], "create">
         const now = yield* nowIso;
         return {
           filteredCount: result.filteredCount,
+          ...(result.warning === null ? {} : { warning: result.warning }),
           items: result.items.map((item) => ({
             title: item.title,
             watch: item.watch,

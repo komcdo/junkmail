@@ -69,7 +69,33 @@ export const StoredSlackSourceSettings = Schema.Struct({
 const decodeStoredSlackSettings = Schema.decodeUnknownSync(StoredSlackSourceSettings);
 export const defaultSlackSourceSettings = (): SlackSourceSettings => decodeStoredSlackSettings({});
 
-export const InboxSourceKind = Schema.Literals(["slack"]);
+/**
+ * A source that runs a shell command and files what it prints: the escape hatch for any system
+ * without a stock puller, or a workspace that will not approve an app. Output is JSON, one
+ * `CommandSourceItem` per line or one array of them.
+ */
+export const CommandSourceSettings = Schema.Struct({
+  command: TrimmedNonEmptyString.check(Schema.isMaxLength(4000)),
+  intervalMinutes: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 1440 })),
+  /** The run is killed after this long and counts as failed. */
+  timeoutSeconds: Schema.Int.check(Schema.isBetween({ minimum: 5, maximum: 900 })),
+  labels: Schema.Array(InboxLabel),
+});
+export type CommandSourceSettings = typeof CommandSourceSettings.Type;
+
+export const defaultCommandSourceSettings = (): CommandSourceSettings => ({
+  command: "",
+  intervalMinutes: 10,
+  timeoutSeconds: 120,
+  labels: [],
+});
+
+export type InboxSourceSettings = SlackSourceSettings | CommandSourceSettings;
+export const isCommandSourceSettings = (
+  settings: InboxSourceSettings,
+): settings is CommandSourceSettings => "command" in settings;
+
+export const InboxSourceKind = Schema.Literals(["slack", "command"]);
 export type InboxSourceKind = typeof InboxSourceKind.Type;
 
 export const InboxSourceStatus = Schema.Literals(["idle", "running", "error", "auth_required"]);
@@ -80,7 +106,7 @@ export const InboxSource = Schema.Struct({
   kind: InboxSourceKind,
   name: TrimmedNonEmptyString,
   enabled: Schema.Boolean,
-  settings: SlackSourceSettings,
+  settings: Schema.Union([SlackSourceSettings, CommandSourceSettings]),
   hasToken: Schema.Boolean,
   /** Who the token belongs to, from the last successful check. */
   account: Schema.NullOr(Schema.Struct({ team: Schema.String, user: Schema.String })),
@@ -102,7 +128,7 @@ export const InboxSourceSaveInput = Schema.Struct({
   kind: InboxSourceKind,
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(60)),
   enabled: Schema.Boolean,
-  settings: SlackSourceSettings,
+  settings: Schema.Union([SlackSourceSettings, CommandSourceSettings]),
   token: Schema.optional(TrimmedNonEmptyString).annotate({
     description: "Replaces the saved token. Omit to keep the current one.",
   }),
@@ -126,8 +152,10 @@ export const InboxSourcePreviewResult = Schema.Struct({
       latestAt: IsoDateTime,
     }),
   ),
-  /** Matches dropped by the bot and own-message filters. */
+  /** Matches dropped by filters, or output lines that were not valid items. */
   filteredCount: Schema.Int,
+  /** Why some output was dropped, such as the first invalid line of a command's output. */
+  warning: Schema.optional(Schema.String),
 });
 export type InboxSourcePreviewResult = typeof InboxSourcePreviewResult.Type;
 

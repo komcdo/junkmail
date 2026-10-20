@@ -21,6 +21,7 @@ import * as ServerSecretStore from "../src/auth/ServerSecretStore.ts";
 import * as InboxService from "../src/inbox/InboxService.ts";
 import * as ThreadLaunchService from "../src/orchestration-v2/ThreadLaunchService.ts";
 import * as SqlitePersistence from "../src/persistence/Sqlite.ts";
+import * as ProcessRunner from "../src/processRunner.ts";
 import * as Scheduler from "../src/scheduling/Scheduler.ts";
 
 const repoRoot = NodePath.resolve(
@@ -387,6 +388,7 @@ const layer = InboxService.layer.pipe(
     Layer.mergeAll(
       Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
       // Seeding writes items directly; no puller runs.
+      Layer.mock(ProcessRunner.ProcessRunner)({}),
       Layer.mock(Scheduler.Scheduler)({ register: () => Effect.void }),
       Layer.mock(ServerSecretStore.ServerSecretStore)({}),
       FetchHttpClient.layer,

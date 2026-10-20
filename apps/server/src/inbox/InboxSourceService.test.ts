@@ -1,7 +1,9 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
   decodeInboxSourcesResponse,
+  defaultCommandSourceSettings,
   defaultSlackSourceSettings,
   encodeInboxSourcesRequest,
   type InboxSourceId,
@@ -17,6 +19,7 @@ import { HttpClient, HttpClientResponse, UrlParams } from "effect/http";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as InboxService from "./InboxService.ts";
 import { expandSlackQuery, slackText } from "./sources/slack.ts";
@@ -66,6 +69,8 @@ const makeLayer = (slack: FakeSlack) => {
       Layer.mergeAll(
         Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
         // Runs are driven by hand here; the scheduler only needs to accept the registration.
+        // Command sources run real shell commands.
+        ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer)),
         Layer.mock(Scheduler.Scheduler)({ register: () => Effect.void }),
         Layer.mock(ServerSecretStore.ServerSecretStore)({
           get: (name) => Effect.succeed(Option.fromNullishOr(secrets.get(name))),
@@ -271,3 +276,99 @@ it("turns Slack markup into plain text and @me into a mention", () => {
   assert.strictEqual(expandSlackQuery("@me in:#eng", account), "<@U9> in:#eng");
   assert.strictEqual(expandSlackQuery("to:me", account), "to:me");
 });
+
+const addCommand = (inbox: InboxService.InboxService["Service"], command: string) =>
+  call(inbox, "save", {
+    kind: "command",
+    name: "Script",
+    enabled: true,
+    settings: { ...defaultCommandSourceSettings(), command, labels: ["script"] },
+  }).pipe(Effect.map(({ source }) => source.id as InboxSourceId));
+
+it.effect("a command's JSON lines become items, merging activity on later runs", () =>
+  withSlack(newSlack(), (inbox) =>
+    Effect.gen(function* () {
+      const line = (body: string, key: string) =>
+        JSON.stringify({
+          key: "ticket-7",
+          title: "Ticket 7: login broken",
+          url: "https://tracker.dev/7",
+          priority: 1,
+          activity: [{ key, body, author: "ann", occurredAt: "2026-10-19T10:00:00.000Z" }],
+        });
+      const id = yield* addCommand(inbox, `printf '%s\\n' '${line("first", "c1")}'`);
+      const { source } = yield* call(inbox, "run", { id });
+      assert.strictEqual(source.status, "idle");
+      assert.isNull(source.lastError);
+      assert.strictEqual(source.lastRunItemCount, 1);
+
+      yield* call(inbox, "save", {
+        id,
+        kind: "command",
+        name: "Script",
+        enabled: true,
+        settings: {
+          ...defaultCommandSourceSettings(),
+          command: `printf '%s\\n' '${line("first", "c1")}' '${line("second", "c2")}'`,
+        },
+      });
+      yield* call(inbox, "run", { id });
+      const [item] = (yield* inbox.list()).items;
+      assert.strictEqual(item?.title, "Ticket 7: login broken");
+      assert.strictEqual(item?.priority, 1);
+      assert.strictEqual(item?.activityCount, 2);
+      assert.strictEqual(item?.unseenActivityCount, 1);
+      assert.strictEqual(item?.origin.externalKey, `${id}:ticket-7`);
+    }),
+  ),
+);
+
+it.effect("invalid lines are skipped and reported; the rest still file", () =>
+  withSlack(newSlack(), (inbox) =>
+    Effect.gen(function* () {
+      const id = yield* addCommand(
+        inbox,
+        `printf '%s\\n' '[{"key":"a","title":"Good"},{"title":"No key"}]'`,
+      );
+      const preview = yield* call(inbox, "preview", { id });
+      assert.deepStrictEqual(
+        preview.items.map((item) => item.title),
+        ["Good"],
+      );
+      assert.strictEqual(preview.filteredCount, 1);
+      assert.include(preview.warning ?? "", "Item 2 is not valid");
+      const { source } = yield* call(inbox, "run", { id });
+      assert.strictEqual(source.status, "idle");
+      assert.include(source.lastError ?? "", "Item 2");
+      assert.deepStrictEqual((yield* inbox.list()).items[0]?.labels, ["script"]);
+    }),
+  ),
+);
+
+it.effect("a failing command reports its stderr and retries later", () =>
+  withSlack(newSlack(), (inbox) =>
+    Effect.gen(function* () {
+      const id = yield* addCommand(inbox, "echo 'not signed in' >&2; exit 3");
+      const { source } = yield* call(inbox, "run", { id });
+      assert.strictEqual(source.status, "error");
+      assert.strictEqual(source.lastError, "Exited with code 3: not signed in");
+      assert.isNotNull(source.nextRunAt);
+    }),
+  ),
+);
+
+it.effect("scripts learn their source id and last good run", () =>
+  withSlack(newSlack(), (inbox) =>
+    Effect.gen(function* () {
+      const id = yield* addCommand(
+        inbox,
+        `printf '{"key":"env","title":"%s|%s"}\\n' "$JUNKMAIL_SOURCE_ID" "$JUNKMAIL_LAST_SUCCESS_AT"`,
+      );
+      const first = yield* call(inbox, "preview", { id });
+      assert.strictEqual(first.items[0]?.title, `${id}|`);
+      yield* call(inbox, "run", { id });
+      const second = yield* call(inbox, "preview", { id });
+      assert.match(second.items[0]?.title ?? "", new RegExp(`^${id}\\|\\d{4}-`));
+    }),
+  ),
+);
